@@ -1,0 +1,14 @@
+# OpenToWork — Python Dependencies
+# Python 3.11+
+
+# Claude API
+anthropic>=0.40.0
+
+# Database
+psycopg2-binary>=2.9.9
+
+# HTTP requests (Arbeitsagentur + SerpAPI)
+requests>=2.31.0
+
+# Environment variables
+python-dotenv>=1.0.0

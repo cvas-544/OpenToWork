@@ -63,6 +63,29 @@
 **Next**: Session 1 — Issue #1 (n8n Docker setup on EC2)
 ---
 
+## [2026-03-08] — Session 1
+
+### [23:41] — opentowork-pm
+**Task**: Session 1 infrastructure setup — DB + EC2 + n8n
+**Issue**: #1, #2
+**Status**: Completed ✅
+**Output**:
+- Global `~/.claude/settings.json` created with safe permission allowlist + denies
+- OpenToWork `.claude/settings.json` created with project-specific permissions (psql, curl, ssh, docker, gh)
+- `requirements.txt` created + venv set up locally (anthropic, psycopg2, requests, python-dotenv)
+- AWS RDS Security Group — port 5432 opened for current IP
+- `opentowork` database created on existing RDS instance (finsense-db, eu-north-1)
+- Schema migration `001_initial_schema.sql` applied — 5 tables created (job_listings, skill_gaps, interview_prep, report_log, applications)
+- EC2 (finsense-telegram, 16.170.177.86) — Docker 28.2.2 + Docker Compose 2.37.1 installed
+- 1GB swap file added to EC2 (was 0B, needed for n8n)
+- EBS volume expanded: 8GB → 20GB (13GB now free)
+- n8n Docker container running on EC2 port 5678
+- n8n owner account created, free license key activated
+**Tokens**: N/A
+**Time**: ~2.5 hours
+**Next**: Build n8n workflows — Agent 1 (Job Scraper) cron + Agent 2 (CV Matcher)
+---
+
 ## Session 0 Summary
 - **Completed**: Full project setup — repo, scaffold, GitHub board, memory system
 - **Pre-requisite**: #20 AWS key rotation — DONE ✅
