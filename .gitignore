@@ -1,0 +1,37 @@
+# Secrets & credentials
+.env
+*.pem
+*.key
+*accessKeys*
+*secret*
+*password*
+*credentials*
+
+# CV — never commit
+/data/cv.txt
+
+# Data exports
+*.csv
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# n8n local data (if running locally)
+n8n/.n8n/
