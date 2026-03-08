@@ -7,6 +7,15 @@ Intelligence layer = Claude API. Orchestration = n8n. Dashboard = React.
 
 ---
 
+## Session Management
+- Run /context every 30 minutes during active sessions
+- Run /compact when context exceeds 50%
+- Write STATUS.md after completing each agent or major feature
+- Never rely on conversation memory — write all decisions to files
+- Flag when a task is too large for one session and suggest a split
+
+---
+
 ## Core Rules — Every Agent Must Follow
 1. Claude API only — claude-haiku-4-5-20251001 (batch) · claude-sonnet-4-6 (reasoning)
 2. Python 3.11+ only for agents
