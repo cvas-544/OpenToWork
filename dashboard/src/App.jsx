@@ -270,24 +270,82 @@ const Overview = () => {
 const JobsBoard = () => {
   const { jobs } = useData();
   const [selected, setSelected] = useState(null);
-  const [filter, setFilter] = useState("all");
-  const filtered = filter === "all" ? jobs : jobs.filter(j => j.status === filter);
+  const [locationFilter, setLocationFilter] = useState("");
+  const [remoteOnly, setRemoteOnly] = useState(false);
+  const [dateRange, setDateRange] = useState("all");
+  const [sortOrder, setSortOrder] = useState("newest");
+
+  const today = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
+  const cutoff = (days) => { const d = new Date(); d.setDate(d.getDate() - days); return d; };
+
+  const filtered = jobs.filter(j => {
+    if (locationFilter && !j.location?.toLowerCase().includes(locationFilter.toLowerCase())) return false;
+    if (remoteOnly && !j.remote) return false;
+    const ref = j.date_posted ? new Date(j.date_posted) : null;
+    if (dateRange === "today") {
+      if (!ref || isNaN(ref) || ref < today()) return false;
+    } else if (dateRange === "3") {
+      if (!ref || isNaN(ref) || ref < cutoff(3)) return false;
+    } else if (dateRange === "7") {
+      if (!ref || isNaN(ref) || ref < cutoff(7)) return false;
+    } else if (dateRange === "10") {
+      if (!ref || isNaN(ref) || ref < cutoff(10)) return false;
+    } else if (dateRange === "10-30") {
+      if (!ref || isNaN(ref) || ref >= cutoff(10) || ref < cutoff(30)) return false;
+    } else if (dateRange === "60") {
+      if (!ref || isNaN(ref) || ref < cutoff(60)) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    const aD = new Date(a.date_posted || 0);
+    const bD = new Date(b.date_posted || 0);
+    return sortOrder === "newest" ? bD - aD : aD - bD;
+  });
+
+  const fmtDate = (str) => {
+    if (!str) return "—";
+    const d = new Date(str);
+    return isNaN(d) ? str.slice(0, 10) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  };
+
+  const Pill = ({ label, active, onClick }) => (
+    <button onClick={onClick} style={{
+      fontSize: 10, padding: "5px 12px", borderRadius: 99, cursor: "pointer",
+      fontFamily: "'DM Mono', monospace", transition: "all 0.2s",
+      background: active ? T.orange : T.gray100,
+      border: `1px solid ${active ? T.orange : T.gray200}`,
+      color: active ? "#fff" : T.gray600,
+    }}>{label}</button>
+  );
+
+  const Sep = () => <div style={{ width: 1, height: 18, background: T.gray200, flexShrink: 0 }} />;
 
   return (
     <div style={{ display: "flex", gap: 14, height: "calc(100vh - 140px)" }}>
       <Card style={{ flex: 1, padding: "24px", overflow: "auto" }}>
-        {/* Filter tabs */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-          {["all","new","applied","interview","rejected"].map(s => (
-            <button key={s} onClick={() => setFilter(s)} style={{
-              fontSize: 10, padding: "5px 14px", borderRadius: 99, cursor: "pointer", fontFamily: "'DM Mono', monospace",
-              background: filter === s ? T.orange : T.gray100,
-              border: `1px solid ${filter === s ? T.orange : T.gray200}`,
-              color: filter === s ? "#fff" : T.gray600, textTransform: "capitalize",
-              transition: "all 0.2s",
-            }}>{s}</button>
+        {/* Single filter row */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 18, alignItems: "center" }}>
+          <input
+            placeholder="Filter location..."
+            value={locationFilter}
+            onChange={e => setLocationFilter(e.target.value)}
+            style={{
+              fontSize: 11, padding: "5px 12px", borderRadius: 99,
+              fontFamily: "'DM Mono', monospace", outline: "none", width: 130,
+              border: `1px solid ${locationFilter ? T.orange : T.gray200}`,
+              background: locationFilter ? T.orangeXLight : T.gray100,
+              color: T.black,
+            }}
+          />
+          <Pill label="Remote only" active={remoteOnly} onClick={() => setRemoteOnly(r => !r)} />
+          <Sep />
+          {[["All Time","all"],["Today","today"],["3d","3"],["7d","7"],["10d","10"],["10–30d","10-30"],["60d","60"]].map(([label, val]) => (
+            <Pill key={val} label={label} active={dateRange === val} onClick={() => setDateRange(val)} />
           ))}
-          <span style={{ marginLeft: "auto", fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, alignSelf: "center" }}>{filtered.length} jobs</span>
+          <Sep />
+          <Pill label="Newest" active={sortOrder === "newest"} onClick={() => setSortOrder("newest")} />
+          <Pill label="Oldest" active={sortOrder === "oldest"} onClick={() => setSortOrder("oldest")} />
+          <span style={{ marginLeft: "auto", fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, flexShrink: 0 }}>{filtered.length} jobs</span>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -308,7 +366,7 @@ const JobsBoard = () => {
                 <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>{j.company} · {j.location}</div>
               </div>
               <Tag color={statusStyle[j.status]?.color} bg={statusStyle[j.status]?.bg}>{j.status}</Tag>
-              <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", width: 60, textAlign: "right" }}>{j.date}</div>
+              <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", width: 60, textAlign: "right" }}>{fmtDate(j.date_posted)}</div>
             </div>
           ))}
         </div>
@@ -316,13 +374,13 @@ const JobsBoard = () => {
 
       {/* Side detail */}
       {selected && (
-        <Card style={{ width: 296, padding: "24px", flexShrink: 0, overflow: "auto" }}>
+        <Card style={{ width: 320, padding: "24px", flexShrink: 0, overflow: "auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 64, lineHeight: 1, color: scoreColor(selected.score), letterSpacing: "-0.01em" }}>{selected.score}<span style={{ fontSize: 28 }}>%</span></div>
             <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 18, alignSelf: "flex-start" }}>✕</button>
           </div>
           <div style={{ fontSize: 15, fontWeight: 800, color: T.black, marginBottom: 2, fontFamily: "'Sora', sans-serif" }}>{selected.title}</div>
-          <div style={{ fontSize: 11, color: T.gray400, marginBottom: 20, fontFamily: "'DM Mono', monospace" }}>{selected.company} · {selected.location}</div>
+          <div style={{ fontSize: 11, color: T.gray400, marginBottom: 20, fontFamily: "'DM Mono', monospace" }}>{selected.company} · {selected.location} · {fmtDate(selected.date_posted)}</div>
 
           <div style={{ marginBottom: 14 }}>
             <Label>Matched Skills</Label>
@@ -330,12 +388,24 @@ const JobsBoard = () => {
               {(selected.matched || []).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
             </div>
           </div>
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 14 }}>
             <Label>Missing Skills</Label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {(selected.missing || []).map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
             </div>
           </div>
+
+          {selected.description && (
+            <div style={{ marginBottom: 24 }}>
+              <Label>Job Description</Label>
+              <div style={{
+                fontSize: 11, color: T.gray600, lineHeight: 1.7, fontFamily: "'Sora', sans-serif",
+                maxHeight: 200, overflow: "auto", padding: "12px 14px",
+                background: T.gray100, borderRadius: 10, border: `1px solid ${T.gray200}`,
+                whiteSpace: "pre-wrap",
+              }}>{selected.description}</div>
+            </div>
+          )}
 
           <button style={{
             width: "100%", padding: "12px", borderRadius: 12, cursor: "pointer", fontSize: 12, fontWeight: 700,

@@ -103,7 +103,7 @@ def get_jobs(limit: int = 200, score_min: int = 0):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT id, title, company, location, remote, url, source,
-               score, date_posted, scraped_at, matched_skills, missing_skills
+               score, date_posted, scraped_at, matched_skills, missing_skills, description
         FROM job_listings
         WHERE (score >= %s OR score IS NULL)
         ORDER BY scraped_at DESC
@@ -119,7 +119,9 @@ def get_jobs(limit: int = 200, score_min: int = 0):
         j["date"] = j["scraped_at"].strftime("%b %d") if j.get("scraped_at") else ""
         j["created_at"] = str(j["scraped_at"])
         j["scraped_at"] = j["created_at"]
+        j["date_posted"] = str(j["date_posted"]) if j.get("date_posted") else ""
         j["status"] = "new"
+        j["description"] = j.get("description") or ""
     return {"jobs": jobs}
 
 
