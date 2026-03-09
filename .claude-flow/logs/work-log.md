@@ -209,6 +209,134 @@
 
 ---
 
+## [2026-03-09] — Session 1 continued — SerpAPI Fix + Apply Button + Issue Workflow Rule
+
+### [19:00] — opentowork-pm
+**Task**: SerpAPI gl=de fix, apply URL extraction, Apply button in dashboard, issue #24+#25
+**Issues**: #24 (Profile — closed), #25 (SERP_API_KEY follow-up — created), #3 follow-up
+**Status**: Completed ✅ — EC2 rebuild pending
+**Output**:
+- Established workflow rule: before closing any GitHub issue, check all to-dos; create follow-up with `follow-up` tag if anything missed
+- #25 created: "Configure SERP_API_KEY in EC2 .env" (missed from #3) — `follow-up` label, linked to #3
+- #24 (Profile tab) closed + board → Done; #4 closed + board → Done
+- SERP_API_KEY confirmed in EC2 agents container via `docker exec` inspection
+- SerpAPI investigation: `gl=de` confirmed as cause of empty results (Google Jobs has poor Germany coverage with de index)
+- `agents/job_scraper.py`: removed `gl=de`, switched to `location` param, loops `["Munich, Germany", "Germany"]`, added logging
+- `agents/job_scraper.py`: fixed apply URL — now extracts from `apply_options` (direct > LinkedIn > first option), not storing job_id
+- `dashboard/src/App.jsx`: "Apply Now" button wired to `window.open(selected.url, "_blank")`; shows "Apply on LinkedIn / Site" (SerpAPI) or "Apply on Arbeitsagentur"; greyed + disabled if no URL
+- Arbeitsagentur detail endpoint confirmed permanently blocked on free `jobboerse-jobsuche` key — descriptions unavailable, accepted limitation
+- All changes pushed: commit `9d3fde0`
+**Blocking Issues**: EC2 not yet rebuilt with latest commit
+**Tokens**: ~80k (est)
+**Time**: ~2 hours
+**Next**:
+1. `cd ~/OpenToWork && git pull && cd ~/n8n && docker compose up -d --force-recreate`
+2. `curl -X POST http://localhost:8000/run/agent1 && docker compose logs agents --tail=50`
+3. Verify SerpAPI now returns jobs (close #25)
+4. #5 end-to-end pipeline test (Agent 1 → Agent 2)
+
+---
+
+## [2026-03-09] — Session 1 continued — Dashboard Polish + Arbeitsagentur Descriptions
+
+### [22:00] — opentowork-pm
+**Task**: Arbeitsagentur descriptions via SSR, apply URL logic, filter UI overhaul, sidebar fix, last run timestamp
+**Issues**: Dashboard polish (ongoing), #25 (SerpAPI verify)
+**Status**: Completed ✅ — EC2 rebuild pending (api.py + job_scraper.py changes)
+**Output**:
+
+**Arbeitsagentur SSR scraping**:
+- Confirmed Arbeitsagentur job detail pages are SSR (Angular Universal)
+- `fetch_job_details(refnr)` parses `<script id="ng-state">` JSON from page HTML
+- Extracts `stellenangebotsBeschreibung` (description) + `externeURL` (direct apply link)
+- If `externeURL` exists → used as job `url` (overrides Arbeitsagentur detail page URL)
+- If not → falls back to `https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}`
+- Committed: `b2cf12c` (SSR description) + `f46a4d7` (externeURL)
+
+**Jobs Board filter UI**:
+- Location: text input + Remote pill → single dynamic dropdown (options from live jobs, auto-grows)
+- "Remote only" baked into location dropdown as first special option
+- Date: pills → dropdown (60d removed), orange highlight when non-default
+- Score: new dropdown — All scores / 80+ Green / 60–79 Yellow / Scored only / Unscored
+- Score filtering logic added to `filtered` useMemo
+- Committed: `337080e`
+
+**Detail panel layout**:
+- Card → flex column (`overflow: hidden`, `padding: 0`)
+- Description area: `flex: 1, minHeight: 0` — grows to fill remaining space
+- "No description available." fallback when empty
+- Buttons: `flexShrink: 0` pinned to bottom with consistent gap
+- Committed: `0c07eac`
+
+**Sidebar toggle fix**:
+- Bug: collapsed sidebar clipped the `›` reopen button (overflow hidden + no room)
+- Fix: hide orange icon when collapsed, show only `›` button centered at 64px
+- Committed: `00cb948` (alongside last_run fix)
+
+**Last run timestamp**:
+- Was hardcoded "Sunday, March 8 · Last run 8:08am"
+- `api.py`: added `MAX(scraped_at) AS last_run` to `/data/stats` response
+- `App.jsx`: `liveStats.last_run` formatted dynamically via `toLocaleDateString` + `toLocaleTimeString`
+- Committed: `00cb948`
+
+**Pending EC2 deploy** (git pull + build + recreate needed for api.py + job_scraper.py):
+```bash
+cd ~/OpenToWork && git pull && cd ~/n8n && docker compose build --no-cache && docker compose up -d --force-recreate
+```
+
+**Blocking Issues**: None
+**Tokens**: ~120k (est)
+**Time**: ~4 hours
+**Next**: EC2 rebuild → verify last_run shows correctly → #5 e2e pipeline test
+
+---
+
+## [2026-03-10] — Session 1 continued — Replace SerpAPI with Apify LinkedIn Scraper + n8n Cron Activated
+
+### [00:00] — opentowork-pm
+**Task**: Ditch SerpAPI entirely, implement Apify `curious_coder/linkedin-jobs-scraper`, activate n8n schedule triggers
+**Issues**: #25 (updated: SERP_API_KEY → APIFY_TOKEN)
+**Status**: Completed ✅ — EC2 rebuild + APIFY_TOKEN in .env still pending
+
+**Output**:
+
+**Apify LinkedIn Scraper**:
+- Replaced `scrape_indeed()` (SerpAPI) with `scrape_apify_linkedin()` using `apify_client` SDK
+- Input: LinkedIn search URL built from `LINKEDIN_BASE_PARAMS` + keyword, passed as `{"urls": [...], "count": 15}`
+- `LINKEDIN_BASE_PARAMS` extracted from user's manually filtered LinkedIn search URL:
+  - `f_E=3,4` — Associate + Mid-Senior Level
+  - `f_JT=F` — Full-time only
+  - `f_PP` — Munich/Germany location postal codes
+  - `f_TPR=r86400` — Last 24 hours
+  - `f_WT=1,3,2` — On-site, Hybrid, Remote
+  - `geoId=101282230` — Germany
+- Output field mapping: `title`, `companyName`, `postedAt`, `descriptionText`, `applyUrl`/`link`
+- `apify-client>=1.7.0` added to `requirements.txt`
+- `SERP_API_KEY` env var replaced with `APIFY_TOKEN`
+- `.env.example` updated
+
+**Keyword + Location cleanup**:
+- Removed: "Python Developer", "Data Engineer" from `TARGET_KEYWORDS`
+- Final keywords: `["AI Engineer", "ML Engineer", "Machine Learning"]`
+- `TARGET_LOCATIONS` updated: `["Germany", "Munich", "Berlin", "Frankfurt", "Stuttgart", "Remote"]`
+
+**n8n Schedule Triggers**:
+- 3 triggers activated: 8am, noon, 8pm daily
+- `job_listings` table truncated (fresh start) — `interview_prep` + `applications` also cleared via CASCADE
+
+**Commits**: `bf5ffdf` `a545469` `6aaebe4` `79f23b5` `ee2be97` `c640bf1` `b1253bf`
+
+**Blocking Issues**: #25 — APIFY_TOKEN must be added to `~/n8n/.env` on EC2 before first automated run
+**Tokens**: ~40k (est)
+**Time**: ~1.5 hours
+**Next**:
+1. Add `APIFY_TOKEN` to `~/n8n/.env` on EC2
+2. EC2 rebuild: `cd ~/OpenToWork && git pull && cd ~/n8n && docker compose build --no-cache && docker compose up -d --force-recreate`
+3. Agent 1 will auto-run at 8am — check Executions tab in n8n
+4. #5 end-to-end pipeline test (Agent 1 → Agent 2)
+
+---
+
 <!-- TEMPLATE FOR FUTURE ENTRIES
 
 ## [YYYY-MM-DD] — Session N — Issue #N: [Title]

@@ -242,16 +242,23 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 - Pre-requisite #20: AWS IAM key rotated
 - #1: n8n Docker setup on EC2 — running on 16.170.177.86:5678
 - #2: PostgreSQL schema — 6 tables on RDS (job_listings, skill_gaps, interview_prep, report_log, applications, user_profile)
-- #3: Agent 1 Job Scraper — FastAPI + n8n workflow live, 97 jobs in DB
+- #3: Agent 1 Job Scraper — FastAPI + n8n workflow live
 - #22: Dashboard live data — api.py fixed, live jobs showing
-- #4: Agent 2 deployed + working — 9 jobs >= 60 scored, results in RDS
-- Jobs Board: single-row filters, date_posted-based, resizable 62:38 panel, tab persistence
-- Profile tab: DB-backed skills (39 pre-populated), add/remove UI, linked to sidebar user button
-- Agent 2 reads profile skills from DB on every scoring run
+- #4: Agent 2 deployed + working — scoring pipeline live
+- #24: Profile tab — DB-backed skills (39 from CV), add/remove UI
+- Jobs Board: filters (location dynamic dropdown, date, score), resizable panel, Apply button
+- Arbeitsagentur SSR: descriptions + externeURL via ng-state JSON
+- SerpAPI → replaced entirely with Apify `curious_coder/linkedin-jobs-scraper`
+- LinkedIn filters: Associate + Mid-Senior, Full-time, Germany, last 24h, hybrid/remote/on-site
+- Keywords trimmed: `["AI Engineer", "ML Engineer", "Machine Learning"]`
+- n8n schedule triggers activated: 8am, noon, 8pm daily
+- job_listings table truncated — fresh start for tomorrow's run
 
 ### Session 1 — Next Up 🔜
-- #5: End-to-end pipeline test (run Agent 1 → Agent 2 back-to-back via n8n)
-- n8n schedule trigger: activate daily 8am cron
+- Add `APIFY_TOKEN` to `~/n8n/.env` on EC2
+- EC2 rebuild: `cd ~/OpenToWork && git pull && cd ~/n8n && docker compose build --no-cache && docker compose up -d --force-recreate`
+- #25: Verify Apify LinkedIn returns results (check n8n Executions at 8am)
+- #5: End-to-end pipeline test (Agent 1 → Agent 2 via n8n)
 
 ### Session 2 — Pending
 - #6–10: Agents 3-6 + n8n wiring
@@ -265,4 +272,4 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## Last Updated
-2026-03-09 — Session 1 extended. #4 Agent 2 live (9/97 jobs scored >= 60). Profile tab done (DB-backed, sidebar linked). 002_user_profile.sql applied. Docker rebuilt. Latest commits: eac81f2 + b9564eb. Next: #5 e2e pipeline test + activate n8n cron.
+2026-03-10 — Session 1 extended. SerpAPI replaced with Apify `curious_coder/linkedin-jobs-scraper` (apify_client SDK). LinkedIn filters from manual search URL (Associate+Mid-Senior, full-time, Germany, last 24h). Keywords trimmed to 3. n8n cron triggers activated (8am/noon/8pm). job_listings truncated. Latest commits: bf5ffdf→b1253bf. EC2 rebuild + APIFY_TOKEN in .env pending. Next: EC2 rebuild → 8am auto-run → #5 e2e test.
