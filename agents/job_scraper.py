@@ -90,16 +90,16 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
         return []
 
 
-def scrape_serpapi(keyword: str) -> list[dict]:
+def scrape_indeed(keyword: str) -> list[dict]:
     if not SERP_API_KEY:
         return []
     url = "https://serpapi.com/search"
     all_jobs = []
-    for query in [f"{keyword} Munich Germany", f"{keyword} Germany remote"]:
+    for location in ["Munich, Germany", "Germany"]:
         params = {
-            "engine": "google_jobs",
-            "q": query,
-            "hl": "en",
+            "engine": "indeed",
+            "q": keyword,
+            "l": location,
             "api_key": SERP_API_KEY,
         }
         try:
@@ -107,26 +107,22 @@ def scrape_serpapi(keyword: str) -> list[dict]:
             resp.raise_for_status()
             data = resp.json()
             if "error" in data or not data.get("jobs_results"):
-                print(f"[SerpAPI] No results for '{query}'")
+                print(f"[Indeed] No results for '{keyword}' in {location}")
                 continue
             for item in data.get("jobs_results", []):
-                apply_options = item.get("apply_options", [])
-                direct = next((a["link"] for a in apply_options if a.get("is_direct")), None)
-                linkedin = next((a["link"] for a in apply_options if "linkedin" in a.get("title", "").lower()), None)
-                apply_url = direct or linkedin or (apply_options[0]["link"] if apply_options else "")
                 all_jobs.append({
                     "title": item.get("title", ""),
                     "company": item.get("company_name", ""),
                     "location": item.get("location", ""),
                     "remote": "remote" in item.get("location", "").lower(),
-                    "url": apply_url,
+                    "url": item.get("link", ""),
                     "description": item.get("description", ""),
-                    "source": "serpapi",
-                    "date_posted": item.get("detected_extensions", {}).get("posted_at", ""),
+                    "source": "indeed",
+                    "date_posted": item.get("date", ""),
                 })
-            print(f"[SerpAPI] '{query}': {len(data.get('jobs_results', []))} jobs")
+            print(f"[Indeed] '{keyword}' in {location}: {len(data.get('jobs_results', []))} jobs")
         except Exception as e:
-            print(f"[SerpAPI] Error for '{query}': {e}")
+            print(f"[Indeed] Error for '{keyword}' in {location}: {e}")
     return all_jobs
 
 
@@ -164,7 +160,7 @@ def run() -> list[dict]:
 
     for keyword in TARGET_KEYWORDS:
         all_jobs += scrape_arbeitsagentur(keyword, "München")
-        all_jobs += scrape_serpapi(keyword)
+        all_jobs += scrape_indeed(keyword)
 
     new_jobs = deduplicate_and_save(all_jobs)
     print(f"[Agent 1] Found {len(all_jobs)} total, {len(new_jobs)} new jobs")
