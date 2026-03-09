@@ -308,7 +308,7 @@ const JobsBoard = () => {
     return isNaN(d) ? str.slice(0, 10) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   };
 
-  const [detailWidth, setDetailWidth] = useState(() => Math.floor((window.innerWidth - 180) / 2));
+  const [detailWidth, setDetailWidth] = useState(() => Math.floor((window.innerWidth - 180) * 0.4));
   const isResizing = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
