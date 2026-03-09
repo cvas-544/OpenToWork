@@ -100,12 +100,18 @@ def scrape_serpapi(keyword: str) -> list[dict]:
                 print(f"[SerpAPI] No results for '{keyword}' in {location}")
                 continue
             for item in data.get("jobs_results", []):
+                # Pick best apply URL: direct first, then LinkedIn, then first option
+                apply_url = ""
+                apply_options = item.get("apply_options", [])
+                direct = next((a["link"] for a in apply_options if a.get("is_direct")), None)
+                linkedin = next((a["link"] for a in apply_options if "linkedin" in a.get("title", "").lower()), None)
+                apply_url = direct or linkedin or (apply_options[0]["link"] if apply_options else "")
                 all_jobs.append({
                     "title": item.get("title", ""),
                     "company": item.get("company_name", ""),
                     "location": item.get("location", ""),
                     "remote": "remote" in item.get("location", "").lower(),
-                    "url": item.get("job_id", ""),
+                    "url": apply_url,
                     "description": item.get("description", ""),
                     "source": "serpapi",
                     "date_posted": item.get("detected_extensions", {}).get("posted_at", ""),

@@ -443,10 +443,17 @@ const JobsBoard = () => {
             background: T.orange, border: "none", color: "#fff", fontFamily: "'DM Mono', monospace",
             marginBottom: 8, boxShadow: `0 4px 16px rgba(232,98,26,0.3)`, transition: "all 0.2s",
           }}>⚡ Generate Interview Prep</button>
-          <button style={{
-            width: "100%", padding: "12px", borderRadius: 12, cursor: "pointer", fontSize: 12, fontWeight: 700,
-            background: T.gray100, border: `1px solid ${T.gray200}`, color: T.gray600, fontFamily: "'DM Mono', monospace",
-          }}>↗ Apply Now</button>
+          <button
+            onClick={() => selected.url && window.open(selected.url, "_blank")}
+            style={{
+              width: "100%", padding: "12px", borderRadius: 12, fontSize: 12, fontWeight: 700,
+              fontFamily: "'DM Mono', monospace", transition: "all 0.2s",
+              background: selected.url ? T.black : T.gray100,
+              border: `1px solid ${selected.url ? T.black : T.gray200}`,
+              color: selected.url ? "#fff" : T.gray400,
+              cursor: selected.url ? "pointer" : "not-allowed",
+            }}
+          >↗ {selected.url ? `Apply on ${selected.source === "serpapi" ? "LinkedIn / Site" : "Arbeitsagentur"}` : "No Apply Link"}</button>
         </>
         )}
         </Card>
