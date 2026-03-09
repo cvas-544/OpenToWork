@@ -93,32 +93,36 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
 def scrape_apify_linkedin(keyword: str) -> list[dict]:
     if not APIFY_TOKEN:
         return []
+    import urllib.parse
     actor_id = "curious_coder~linkedin-jobs-scraper"
-    url = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
-    params = {"token": APIFY_TOKEN}
-    payload = {
-        "includeKeyword": keyword,
-        "locationName": "Munich",
-        "countryName": "germany",
-        "datePosted": "week",
-        "pagesToFetch": 2,
-    }
+    api_url = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
+    # Build LinkedIn search URL: last week filter (f_TPR=r604800)
+    search_url = (
+        "https://www.linkedin.com/jobs/search/?"
+        + urllib.parse.urlencode({
+            "keywords": keyword,
+            "location": "Munich, Germany",
+            "f_TPR": "r604800",
+        })
+    )
+    payload = {"startUrls": search_url}
     try:
-        resp = requests.post(url, params=params, json=payload, timeout=120)
+        resp = requests.post(api_url, params={"token": APIFY_TOKEN}, json=payload, timeout=120)
         resp.raise_for_status()
         items = resp.json()
         jobs = []
         for item in items:
             location = item.get("location", "") or ""
+            apply_url = item.get("applyUrl", "") or item.get("link", "") or ""
             jobs.append({
-                "title": item.get("job_title", ""),
-                "company": item.get("company_name", ""),
+                "title": item.get("title", ""),
+                "company": item.get("companyName", ""),
                 "location": location,
                 "remote": "remote" in location.lower(),
-                "url": item.get("URL", "") or item.get("url", ""),
-                "description": item.get("description", "") or "",
+                "url": apply_url,
+                "description": item.get("descriptionText", "") or "",
                 "source": "linkedin",
-                "date_posted": item.get("date", "") or "",
+                "date_posted": item.get("postedAt", "") or "",
             })
         print(f"[Apify/LinkedIn] '{keyword}': {len(jobs)} jobs")
         return jobs
