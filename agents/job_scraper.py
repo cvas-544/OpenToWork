@@ -114,7 +114,7 @@ def scrape_apify_linkedin(keyword: str) -> list[dict]:
     try:
         client = ApifyClient(APIFY_TOKEN)
         run = client.actor("curious_coder/linkedin-jobs-scraper").call(
-            run_input={"urls": [search_url], "count": 50}
+            run_input={"urls": [search_url], "count": 15}
         )
         jobs = []
         for item in client.dataset(run["defaultDatasetId"]).iterate_items():
