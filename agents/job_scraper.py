@@ -1,7 +1,7 @@
 """
 Agent 1 — Job Scraper
 Trigger: Daily 8am cron via n8n
-Sources: Arbeitsagentur REST API + SerpAPI Google Jobs
+Sources: Arbeitsagentur REST API + Apify LinkedIn Jobs Scraper
 Output: list of raw job dicts → passed to Agent 2 (cv_matcher)
 """
 
@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-SERP_API_KEY = os.environ.get("SERP_API_KEY", "")
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche")
 
 TARGET_KEYWORDS = ["AI Engineer", "ML Engineer", "Python Developer", "Data Engineer", "Machine Learning"]
@@ -90,40 +90,41 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
         return []
 
 
-def scrape_indeed(keyword: str) -> list[dict]:
-    if not SERP_API_KEY:
+def scrape_apify_linkedin(keyword: str) -> list[dict]:
+    if not APIFY_TOKEN:
         return []
-    url = "https://serpapi.com/search"
-    all_jobs = []
-    for location in ["Munich, Germany", "Germany"]:
-        params = {
-            "engine": "indeed",
-            "q": keyword,
-            "l": location,
-            "api_key": SERP_API_KEY,
-        }
-        try:
-            resp = requests.get(url, params=params, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            if "error" in data or not data.get("jobs_results"):
-                print(f"[Indeed] No results for '{keyword}' in {location}")
-                continue
-            for item in data.get("jobs_results", []):
-                all_jobs.append({
-                    "title": item.get("title", ""),
-                    "company": item.get("company_name", ""),
-                    "location": item.get("location", ""),
-                    "remote": "remote" in item.get("location", "").lower(),
-                    "url": item.get("link", ""),
-                    "description": item.get("description", ""),
-                    "source": "indeed",
-                    "date_posted": item.get("date", ""),
-                })
-            print(f"[Indeed] '{keyword}' in {location}: {len(data.get('jobs_results', []))} jobs")
-        except Exception as e:
-            print(f"[Indeed] Error for '{keyword}' in {location}: {e}")
-    return all_jobs
+    actor_id = "curious_coder~linkedin-jobs-scraper"
+    url = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
+    params = {"token": APIFY_TOKEN}
+    payload = {
+        "includeKeyword": keyword,
+        "locationName": "Munich",
+        "countryName": "germany",
+        "datePosted": "week",
+        "pagesToFetch": 2,
+    }
+    try:
+        resp = requests.post(url, params=params, json=payload, timeout=120)
+        resp.raise_for_status()
+        items = resp.json()
+        jobs = []
+        for item in items:
+            location = item.get("location", "") or ""
+            jobs.append({
+                "title": item.get("job_title", ""),
+                "company": item.get("company_name", ""),
+                "location": location,
+                "remote": "remote" in location.lower(),
+                "url": item.get("URL", "") or item.get("url", ""),
+                "description": item.get("description", "") or "",
+                "source": "linkedin",
+                "date_posted": item.get("date", "") or "",
+            })
+        print(f"[Apify/LinkedIn] '{keyword}': {len(jobs)} jobs")
+        return jobs
+    except Exception as e:
+        print(f"[Apify/LinkedIn] Error for '{keyword}': {e}")
+        return []
 
 
 def deduplicate_and_save(jobs: list[dict]) -> list[dict]:
@@ -160,7 +161,7 @@ def run() -> list[dict]:
 
     for keyword in TARGET_KEYWORDS:
         all_jobs += scrape_arbeitsagentur(keyword, "München")
-        all_jobs += scrape_indeed(keyword)
+        all_jobs += scrape_apify_linkedin(keyword)
 
     new_jobs = deduplicate_and_save(all_jobs)
     print(f"[Agent 1] Found {len(all_jobs)} total, {len(new_jobs)} new jobs")
