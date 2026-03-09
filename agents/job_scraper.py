@@ -95,7 +95,7 @@ def scrape_serpapi(keyword: str) -> list[dict]:
         return []
     url = "https://serpapi.com/search"
     all_jobs = []
-    for location in ["Munich, Germany", "Germany"]:
+    for location in ["Munich, Germany"]:
         params = {
             "engine": "linkedin_jobs",
             "keywords": keyword,
