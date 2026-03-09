@@ -90,7 +90,6 @@ def scrape_serpapi(keyword: str) -> list[dict]:
             "q": keyword,
             "location": location,
             "hl": "en",
-            "gl": "de",
             "api_key": SERP_API_KEY,
         }
         try:
