@@ -240,12 +240,12 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 
 ### Completed ✅
 - Pre-requisite #20: AWS IAM key rotated
+- #1: n8n Docker setup on EC2 — running on 16.170.177.86:5678
+- #2: PostgreSQL schema migration — 5 tables live on RDS
+- #3: Agent 1 Job Scraper — FastAPI server + n8n workflow live, jobs saving to DB
 
 ### Session 1 — Next Up 🔜
-- #1: n8n Docker setup on EC2 ← START HERE
-- #2: PostgreSQL schema migration on RDS
-- #3: Agent 1 — Job Scraper
-- #4: Agent 2 — CV Matcher (Claude Haiku)
+- #4: Agent 2 — CV Matcher (Claude Haiku) ← NEXT
 - #5: End-to-end pipeline test (Agents 1→2)
 
 ### Session 2 — Pending
@@ -260,4 +260,4 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## Last Updated
-2026-03-08 — Session 0 complete. Project scaffolded. GitHub repo + project board created (20 issues). Pre-requisite #20 (AWS key rotation) done. Work log + memory system set up. Next: Session 1 — Issue #1 (n8n Docker setup on EC2).
+2026-03-09 — Session 1 in progress. #1+#2+#3 done. FastAPI agent server live (port 8000). n8n workflow for Agent 1 working. Next: #4 Agent 2 CV Matcher.

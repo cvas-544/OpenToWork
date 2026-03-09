@@ -86,6 +86,28 @@
 **Next**: Build n8n workflows — Agent 1 (Job Scraper) cron + Agent 2 (CV Matcher)
 ---
 
+## [2026-03-09] — Session 1 continued — Issue #3: Agent 1 Job Scraper
+
+### [14:00] — opentowork-pm
+**Task**: Build Agent 1 n8n workflow + FastAPI agent server
+**Issue**: #3
+**Status**: Completed ✅
+**Output**:
+- Fixed `job_scraper.py` — added `load_dotenv()`, fixed Arbeitsagentur `page` param (must be >= 1)
+- Created `server/api.py` — FastAPI server exposing `/run/agent1` through `/run/agent6` + `/health`
+- Created `Dockerfile` for agents container (python:3.11-slim, bakes in all deps)
+- Updated `n8n/docker-compose.yml` — added `agents` service (build from Dockerfile, port 8000), `NODES_EXCLUDE=[]`
+- Cloned OpenToWork repo on EC2, created `.env`, installed venv
+- Both Docker containers running: `n8n-n8n-1` (5678) + `n8n-agents-1` (8000)
+- n8n workflow: Schedule Trigger → HTTP Request → `POST http://agents:8000/run/agent1`
+- Agent 1 tested successfully via n8n — returns `{status: ok, new_jobs: N, jobs: [...]}`
+- Jobs saving to RDS `job_listings` table with deduplication
+**Blocking Issues**: None
+**Tokens**: ~95k
+**Time**: ~3 hours
+**Next**: Issue #4 — Agent 2 CV Matcher
+---
+
 ## Session 0 Summary
 - **Completed**: Full project setup — repo, scaffold, GitHub board, memory system
 - **Pre-requisite**: #20 AWS key rotation — DONE ✅
