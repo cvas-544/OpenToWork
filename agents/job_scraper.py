@@ -97,10 +97,9 @@ def scrape_serpapi(keyword: str) -> list[dict]:
     all_jobs = []
     for location in ["Munich, Germany", "Germany"]:
         params = {
-            "engine": "google_jobs",
-            "q": keyword,
+            "engine": "linkedin_jobs",
+            "keywords": keyword,
             "location": location,
-            "hl": "en",
             "api_key": SERP_API_KEY,
         }
         try:
@@ -108,28 +107,22 @@ def scrape_serpapi(keyword: str) -> list[dict]:
             resp.raise_for_status()
             data = resp.json()
             if "error" in data:
-                print(f"[SerpAPI] No results for '{keyword}' in {location}")
+                print(f"[SerpAPI/LinkedIn] No results for '{keyword}' in {location}")
                 continue
-            for item in data.get("jobs_results", []):
-                # Pick best apply URL: direct first, then LinkedIn, then first option
-                apply_url = ""
-                apply_options = item.get("apply_options", [])
-                direct = next((a["link"] for a in apply_options if a.get("is_direct")), None)
-                linkedin = next((a["link"] for a in apply_options if "linkedin" in a.get("title", "").lower()), None)
-                apply_url = direct or linkedin or (apply_options[0]["link"] if apply_options else "")
+            for item in data.get("jobs", []):
                 all_jobs.append({
-                    "title": item.get("title", ""),
-                    "company": item.get("company_name", ""),
+                    "title": item.get("position", ""),
+                    "company": item.get("company", ""),
                     "location": item.get("location", ""),
                     "remote": "remote" in item.get("location", "").lower(),
-                    "url": apply_url,
+                    "url": item.get("job_link", ""),
                     "description": item.get("description", ""),
                     "source": "serpapi",
-                    "date_posted": item.get("detected_extensions", {}).get("posted_at", ""),
+                    "date_posted": item.get("date", ""),
                 })
-            print(f"[SerpAPI] '{keyword}' in {location}: {len(data.get('jobs_results', []))} jobs")
+            print(f"[SerpAPI/LinkedIn] '{keyword}' in {location}: {len(data.get('jobs', []))} jobs")
         except Exception as e:
-            print(f"[SerpAPI] Error for '{keyword}' in {location}: {e}")
+            print(f"[SerpAPI/LinkedIn] Error for '{keyword}' in {location}: {e}")
     return all_jobs
 
 
