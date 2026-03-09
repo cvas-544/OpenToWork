@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { fetchJobs, fetchStats } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
@@ -308,6 +308,23 @@ const JobsBoard = () => {
     return isNaN(d) ? str.slice(0, 10) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   };
 
+  const [detailWidth, setDetailWidth] = useState(320);
+  const isResizing = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isResizing.current) return;
+      const dx = startX.current - e.clientX;
+      setDetailWidth(Math.min(Math.max(startWidth.current + dx, 280), 800));
+    };
+    const onUp = () => { isResizing.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
+
   const Pill = ({ label, active, onClick }) => (
     <button onClick={onClick} style={{
       fontSize: 10, padding: "5px 12px", borderRadius: 99, cursor: "pointer",
@@ -374,7 +391,15 @@ const JobsBoard = () => {
 
       {/* Side detail */}
       {selected && (
-        <Card style={{ width: 320, padding: "24px", flexShrink: 0, overflow: "auto" }}>
+        <div style={{ position: "relative", width: detailWidth, flexShrink: 0 }}>
+          {/* Resize handle */}
+          <div
+            onMouseDown={(e) => { isResizing.current = true; startX.current = e.clientX; startWidth.current = detailWidth; e.preventDefault(); }}
+            style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            <div style={{ width: 3, height: 32, borderRadius: 99, background: T.gray200 }} />
+          </div>
+        <Card style={{ width: "100%", height: "100%", padding: "24px", overflow: "auto", boxSizing: "border-box" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 64, lineHeight: 1, color: scoreColor(selected.score), letterSpacing: "-0.01em" }}>{selected.score}<span style={{ fontSize: 28 }}>%</span></div>
             <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 18, alignSelf: "flex-start" }}>✕</button>
@@ -417,6 +442,7 @@ const JobsBoard = () => {
             background: T.gray100, border: `1px solid ${T.gray200}`, color: T.gray600, fontFamily: "'DM Mono', monospace",
           }}>↗ Apply Now</button>
         </Card>
+        </div>
       )}
     </div>
   );
