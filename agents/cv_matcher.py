@@ -60,7 +60,12 @@ Scoring guide:
         messages=[{"role": "user", "content": prompt}],
     )
     try:
-        return json.loads(response.content[0].text)
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text.strip())
     except json.JSONDecodeError:
         return {"score": 0, "matched_skills": [], "missing_skills": [], "fit_reason": "Parse error", "red_flags": []}
 
