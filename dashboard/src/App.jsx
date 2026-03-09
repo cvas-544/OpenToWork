@@ -389,17 +389,23 @@ const JobsBoard = () => {
         </div>
       </Card>
 
-      {/* Side detail */}
-      {selected && (
-        <div style={{ position: "relative", width: detailWidth, flexShrink: 0 }}>
-          {/* Resize handle */}
-          <div
-            onMouseDown={(e) => { isResizing.current = true; startX.current = e.clientX; startWidth.current = detailWidth; e.preventDefault(); }}
-            style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}
-          >
-            <div style={{ width: 3, height: 32, borderRadius: 99, background: T.gray200 }} />
-          </div>
+      {/* Side detail — always visible */}
+      <div style={{ position: "relative", width: detailWidth, flexShrink: 0 }}>
+        {/* Resize handle */}
+        <div
+          onMouseDown={(e) => { isResizing.current = true; startX.current = e.clientX; startWidth.current = detailWidth; e.preventDefault(); }}
+          style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div style={{ width: 3, height: 32, borderRadius: 99, background: T.gray200 }} />
+        </div>
         <Card style={{ width: "100%", height: "100%", padding: "24px", overflow: "auto", boxSizing: "border-box" }}>
+        {!selected ? (
+          <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+            <div style={{ fontSize: 32, color: T.gray200 }}>◈</div>
+            <div style={{ fontSize: 12, color: T.gray400, fontFamily: "'DM Mono', monospace", textAlign: "center" }}>Select a job<br/>to see details</div>
+          </div>
+        ) : (
+        <>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 64, lineHeight: 1, color: scoreColor(selected.score), letterSpacing: "-0.01em" }}>{selected.score}<span style={{ fontSize: 28 }}>%</span></div>
             <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 18, alignSelf: "flex-start" }}>✕</button>
@@ -441,9 +447,10 @@ const JobsBoard = () => {
             width: "100%", padding: "12px", borderRadius: 12, cursor: "pointer", fontSize: 12, fontWeight: 700,
             background: T.gray100, border: `1px solid ${T.gray200}`, color: T.gray600, fontFamily: "'DM Mono', monospace",
           }}>↗ Apply Now</button>
+        </>
+        )}
         </Card>
-        </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -830,8 +837,10 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [active, setActive] = useState("overview");
+  const [active, setActive] = useState(() => localStorage.getItem("activeTab") || "overview");
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => { localStorage.setItem("activeTab", active); }, [active]);
   const pageTitle = navItems.find(n => n.id === active)?.label || "";
 
   // ── Live data state (falls back to mock if API unavailable) ──
