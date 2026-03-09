@@ -83,32 +83,38 @@ def scrape_serpapi(keyword: str) -> list[dict]:
     if not SERP_API_KEY:
         return []
     url = "https://serpapi.com/search"
-    params = {
-        "engine": "google_jobs",
-        "q": f"{keyword} Munich Germany OR Remote",
-        "hl": "en",
-        "api_key": SERP_API_KEY,
-    }
-    try:
-        resp = requests.get(url, params=params, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        jobs = []
-        for item in data.get("jobs_results", []):
-            jobs.append({
-                "title": item.get("title", ""),
-                "company": item.get("company_name", ""),
-                "location": item.get("location", ""),
-                "remote": "remote" in item.get("location", "").lower(),
-                "url": item.get("job_id", ""),
-                "description": item.get("description", ""),
-                "source": "serpapi",
-                "date_posted": item.get("detected_extensions", {}).get("posted_at", ""),
-            })
-        return jobs
-    except Exception as e:
-        print(f"[SerpAPI] Error for '{keyword}': {e}")
-        return []
+    all_jobs = []
+    for location in ["Munich, Germany", "Germany"]:
+        params = {
+            "engine": "google_jobs",
+            "q": keyword,
+            "location": location,
+            "hl": "en",
+            "gl": "de",
+            "api_key": SERP_API_KEY,
+        }
+        try:
+            resp = requests.get(url, params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                print(f"[SerpAPI] No results for '{keyword}' in {location}")
+                continue
+            for item in data.get("jobs_results", []):
+                all_jobs.append({
+                    "title": item.get("title", ""),
+                    "company": item.get("company_name", ""),
+                    "location": item.get("location", ""),
+                    "remote": "remote" in item.get("location", "").lower(),
+                    "url": item.get("job_id", ""),
+                    "description": item.get("description", ""),
+                    "source": "serpapi",
+                    "date_posted": item.get("detected_extensions", {}).get("posted_at", ""),
+                })
+            print(f"[SerpAPI] '{keyword}' in {location}: {len(data.get('jobs_results', []))} jobs")
+        except Exception as e:
+            print(f"[SerpAPI] Error for '{keyword}' in {location}: {e}")
+    return all_jobs
 
 
 def deduplicate_and_save(jobs: list[dict]) -> list[dict]:
