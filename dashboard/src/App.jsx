@@ -271,16 +271,20 @@ const JobsBoard = () => {
   const { jobs } = useData();
   const [selected, setSelected] = useState(null);
   const [locationFilter, setLocationFilter] = useState("");
-  const [remoteOnly, setRemoteOnly] = useState(false);
   const [dateRange, setDateRange] = useState("all");
+  const [scoreFilter, setScoreFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState("newest");
 
   const today = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
   const cutoff = (days) => { const d = new Date(); d.setDate(d.getDate() - days); return d; };
 
+  const locationOptions = ["All locations", "Remote only", ...Array.from(new Set(jobs.map(j => j.location).filter(Boolean))).sort()];
+
   const filtered = jobs.filter(j => {
-    if (locationFilter && !j.location?.toLowerCase().includes(locationFilter.toLowerCase())) return false;
-    if (remoteOnly && !j.remote) return false;
+    if (locationFilter === "Remote only") { if (!j.remote) return false; }
+    else if (locationFilter && locationFilter !== "All locations") {
+      if (!j.location?.toLowerCase().includes(locationFilter.toLowerCase())) return false;
+    }
     const ref = j.date_posted ? new Date(j.date_posted) : null;
     if (dateRange === "today") {
       if (!ref || isNaN(ref) || ref < today()) return false;
@@ -292,9 +296,12 @@ const JobsBoard = () => {
       if (!ref || isNaN(ref) || ref < cutoff(10)) return false;
     } else if (dateRange === "10-30") {
       if (!ref || isNaN(ref) || ref >= cutoff(10) || ref < cutoff(30)) return false;
-    } else if (dateRange === "60") {
-      if (!ref || isNaN(ref) || ref < cutoff(60)) return false;
     }
+    const score = j.score ?? null;
+    if (scoreFilter === "80") { if (!score || score < 80) return false; }
+    else if (scoreFilter === "60") { if (!score || score < 60 || score >= 80) return false; }
+    else if (scoreFilter === "scored") { if (!score) return false; }
+    else if (scoreFilter === "unscored") { if (score) return false; }
     return true;
   }).sort((a, b) => {
     const aD = new Date(a.date_posted || 0);
@@ -341,24 +348,57 @@ const JobsBoard = () => {
     <div style={{ display: "flex", gap: 14, height: "calc(100vh - 140px)" }}>
       <Card style={{ flex: 1, padding: "24px", overflow: "auto" }}>
         {/* Single filter row */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 18, alignItems: "center" }}>
-          <input
-            placeholder="Filter location..."
-            value={locationFilter}
-            onChange={e => setLocationFilter(e.target.value)}
+        <div style={{ display: "flex", gap: 8, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
+          <select
+            value={locationFilter || "All locations"}
+            onChange={e => setLocationFilter(e.target.value === "All locations" ? "" : e.target.value)}
             style={{
               fontSize: 11, padding: "5px 12px", borderRadius: 99,
-              fontFamily: "'DM Mono', monospace", outline: "none", width: 130,
-              border: `1px solid ${locationFilter ? T.orange : T.gray200}`,
-              background: locationFilter ? T.orangeXLight : T.gray100,
-              color: T.black,
+              fontFamily: "'DM Mono', monospace", outline: "none",
+              border: `1px solid ${locationFilter && locationFilter !== "All locations" ? T.orange : T.gray200}`,
+              background: locationFilter && locationFilter !== "All locations" ? T.orangeXLight : T.gray100,
+              color: T.black, cursor: "pointer",
             }}
-          />
-          <Pill label="Remote only" active={remoteOnly} onClick={() => setRemoteOnly(r => !r)} />
+          >
+            {locationOptions.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+          </select>
           <Sep />
-          {[["All Time","all"],["Today","today"],["3d","3"],["7d","7"],["10d","10"],["10–30d","10-30"],["60d","60"]].map(([label, val]) => (
-            <Pill key={val} label={label} active={dateRange === val} onClick={() => setDateRange(val)} />
-          ))}
+          <select
+            value={dateRange}
+            onChange={e => setDateRange(e.target.value)}
+            style={{
+              fontSize: 11, padding: "5px 12px", borderRadius: 99,
+              fontFamily: "'DM Mono', monospace", outline: "none",
+              border: `1px solid ${dateRange !== "all" ? T.orange : T.gray200}`,
+              background: dateRange !== "all" ? T.orangeXLight : T.gray100,
+              color: T.black, cursor: "pointer",
+            }}
+          >
+            <option value="all">All time</option>
+            <option value="today">Today</option>
+            <option value="3">Last 3 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="10">Last 10 days</option>
+            <option value="10-30">10–30 days ago</option>
+          </select>
+          <Sep />
+          <select
+            value={scoreFilter}
+            onChange={e => setScoreFilter(e.target.value)}
+            style={{
+              fontSize: 11, padding: "5px 12px", borderRadius: 99,
+              fontFamily: "'DM Mono', monospace", outline: "none",
+              border: `1px solid ${scoreFilter !== "all" ? T.orange : T.gray200}`,
+              background: scoreFilter !== "all" ? T.orangeXLight : T.gray100,
+              color: T.black, cursor: "pointer",
+            }}
+          >
+            <option value="all">All scores</option>
+            <option value="80">80+ Green</option>
+            <option value="60">60–79 Yellow</option>
+            <option value="scored">Scored only</option>
+            <option value="unscored">Unscored</option>
+          </select>
           <Sep />
           <Pill label="Newest" active={sortOrder === "newest"} onClick={() => setSortOrder("newest")} />
           <Pill label="Oldest" active={sortOrder === "oldest"} onClick={() => setSortOrder("oldest")} />
