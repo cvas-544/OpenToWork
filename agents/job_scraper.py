@@ -25,6 +25,18 @@ ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuch
 TARGET_KEYWORDS = ["AI Engineer", "ML Engineer", "Python Developer", "Data Engineer", "Machine Learning"]
 TARGET_LOCATIONS = ["München", "Munich", "Deutschland", "Remote"]
 
+# Base LinkedIn search filters (copied from manual search — swap keywords per run)
+LINKEDIN_BASE_PARAMS = {
+    "f_E": "3,4",                                          # Mid-Senior + Director
+    "f_JT": "F",                                           # Full-time
+    "f_PP": "100477049,106967730,106772406,103884904",     # Location postal codes
+    "f_T": "30128,25206,31823",                            # Job function IDs
+    "f_TPR": "r86400",                                     # Last 24 hours
+    "f_WT": "1,3,2",                                       # On-site, Hybrid, Remote
+    "geoId": "101282230",                                  # Germany
+    "sortBy": "R",                                         # Relevance
+}
+
 
 def get_db():
     return psycopg2.connect(DATABASE_URL)
@@ -95,14 +107,9 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
 def scrape_apify_linkedin(keyword: str) -> list[dict]:
     if not APIFY_TOKEN:
         return []
-    # Build LinkedIn search URL: last week filter (f_TPR=r604800)
     search_url = (
         "https://www.linkedin.com/jobs/search/?"
-        + urllib.parse.urlencode({
-            "keywords": keyword,
-            "location": "Munich, Germany",
-            "f_TPR": "r604800",
-        })
+        + urllib.parse.urlencode({**LINKEDIN_BASE_PARAMS, "keywords": keyword})
     )
     try:
         client = ApifyClient(APIFY_TOKEN)
