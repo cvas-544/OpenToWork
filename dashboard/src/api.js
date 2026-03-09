@@ -22,3 +22,29 @@ export async function fetchStats() {
     return null;
   }
 }
+
+export async function fetchProfile() {
+  try {
+    const res = await fetch(`${API_URL}/profile`);
+    if (!res.ok) throw new Error("API error");
+    return await res.json();
+  } catch (e) {
+    console.warn("[API] fetchProfile failed:", e.message);
+    return null;
+  }
+}
+
+export async function updateSkills(skills) {
+  try {
+    const res = await fetch(`${API_URL}/profile/skills`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skills }),
+    });
+    if (!res.ok) throw new Error("API error");
+    return await res.json();
+  } catch (e) {
+    console.warn("[API] updateSkills failed:", e.message);
+    return null;
+  }
+}

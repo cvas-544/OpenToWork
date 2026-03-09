@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, createContext, useContext } from "react";
-import { fetchJobs, fetchStats } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, LineChart, Line,
@@ -107,6 +107,7 @@ const navItems = [
   { id: "timeline", label: "Timeline", icon: "▭" },
   { id: "interview", label: "Interview Prep", icon: "◇" },
   { id: "analytics", label: "Analytics", icon: "◉" },
+  { id: "profile", label: "Profile", icon: "◐" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -743,6 +744,119 @@ const Analytics = () => (
   </div>
 );
 
+// ─── Profile ──────────────────────────────────────────────────────────────────
+const ProfileView = () => {
+  const [skills, setSkills] = useState([]);
+  const [newSkill, setNewSkill] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetchProfile().then(data => {
+      if (data?.skills) setSkills(data.skills);
+      setLoaded(true);
+    });
+  }, []);
+
+  const addSkill = async () => {
+    const trimmed = newSkill.trim();
+    if (!trimmed || skills.includes(trimmed)) return;
+    const updated = [...skills, trimmed];
+    setSkills(updated);
+    setNewSkill("");
+    setSaving(true);
+    await updateSkills(updated);
+    setSaving(false);
+  };
+
+  const removeSkill = async (skill) => {
+    const updated = skills.filter(s => s !== skill);
+    setSkills(updated);
+    await updateSkills(updated);
+  };
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      {/* Identity card */}
+      <Card style={{ padding: "28px 32px", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: 20,
+            background: T.orangeXLight, border: `2px solid ${T.orange}33`,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
+          }}>👤</div>
+          <div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, color: T.black, letterSpacing: "0.02em" }}>Vasu Chukka</div>
+            <div style={{ fontSize: 13, color: T.gray600, fontFamily: "'Sora', sans-serif", marginTop: 2 }}>AI / ML Engineer · Munich, Germany</div>
+            <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 4 }}>
+              Targets: AI Engineer · ML Engineer · Python Developer
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Skills card */}
+      <Card style={{ padding: "24px 28px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 20, color: T.black, letterSpacing: "0.04em" }}>Skills</div>
+            <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 2 }}>
+              Agent 2 uses these for every job match
+            </div>
+          </div>
+          <Tag color={T.green} bg={T.greenLight}>{skills.length} skills</Tag>
+        </div>
+
+        {/* Add input */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+          <input
+            value={newSkill}
+            onChange={e => setNewSkill(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addSkill()}
+            placeholder="Add a skill and press Enter..."
+            style={{
+              flex: 1, padding: "9px 14px", borderRadius: 10,
+              border: `1.5px solid ${T.gray200}`, fontSize: 13,
+              fontFamily: "'Sora', sans-serif", color: T.black,
+              background: T.white, outline: "none",
+            }}
+          />
+          <button onClick={addSkill} style={{
+            padding: "9px 20px", borderRadius: 10, background: T.orange,
+            color: "#fff", border: "none", cursor: "pointer",
+            fontSize: 13, fontWeight: 600, fontFamily: "'Sora', sans-serif",
+            opacity: saving ? 0.6 : 1,
+          }}>
+            {saving ? "Saving…" : "Add"}
+          </button>
+        </div>
+
+        {/* Skills chips */}
+        {!loaded ? (
+          <div style={{ fontSize: 12, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>Loading skills…</div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {skills.map(skill => (
+              <div key={skill} style={{
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "5px 10px 5px 13px", borderRadius: 99,
+                background: T.gray100, border: `1px solid ${T.gray200}`,
+              }}>
+                <span style={{ fontSize: 12, color: T.black, fontFamily: "'Sora', sans-serif" }}>{skill}</span>
+                <button onClick={() => removeSkill(skill)} style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: T.gray400, fontSize: 15, padding: 0, lineHeight: 1,
+                  display: "flex", alignItems: "center",
+                }}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+};
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
   const history = [
@@ -870,6 +984,7 @@ export default function App() {
     if (active === "timeline") return <Timeline />;
     if (active === "interview") return <InterviewPrepView />;
     if (active === "analytics") return <Analytics />;
+    if (active === "profile") return <ProfileView />;
   };
 
   return (

@@ -4,10 +4,13 @@ FastAPI server exposing agent run endpoints + data endpoints for n8n and dashboa
 """
 
 import os
+import json
 import psycopg2
 import psycopg2.extras
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -93,6 +96,45 @@ def run_agent6():
         return {"status": "ok", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Dashboard Data Endpoints ──────────────────────────────────────────────────
+
+# ── Profile Endpoints ─────────────────────────────────────────────────────────
+
+class SkillsBody(BaseModel):
+    skills: List[str]
+
+
+@app.get("/profile")
+def get_profile():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return {"skills": []}
+    return {"skills": row["skills"]}
+
+
+@app.post("/profile/skills")
+def update_skills(body: SkillsBody):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO user_profile (user_id, skills, updated_at)
+        VALUES ('default', %s, NOW())
+        ON CONFLICT (user_id) DO UPDATE SET skills = EXCLUDED.skills, updated_at = NOW()
+        """,
+        (json.dumps(body.skills),),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"status": "ok", "skills": body.skills}
 
 
 # ── Dashboard Data Endpoints ──────────────────────────────────────────────────

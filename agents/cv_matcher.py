@@ -27,11 +27,29 @@ def load_cv() -> str:
     return CV_PATH.read_text(encoding="utf-8")
 
 
-def score_job(job: dict, cv_text: str) -> dict:
+def load_profile_skills() -> list:
+    """Load additional skills from user_profile table."""
+    try:
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        cur = conn.cursor()
+        cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return row[0] if row else []
+    except Exception:
+        return []
+
+
+def score_job(job: dict, cv_text: str, profile_skills: list = None) -> dict:
+    skills_section = ""
+    if profile_skills:
+        skills_section = f"\n\nAdditional skills from user profile:\n{', '.join(profile_skills)}"
+
     prompt = f"""You are a precise job-CV matching assistant. Score this job against the CV.
 
 CV:
-{cv_text}
+{cv_text}{skills_section}
 
 Job:
 Title: {job['title']}
@@ -122,10 +140,13 @@ def run() -> list[dict]:
 
     print(f"[Agent 2] Scoring {len(jobs)} jobs against CV")
     cv_text = load_cv()
+    profile_skills = load_profile_skills()
+    if profile_skills:
+        print(f"[Agent 2] Loaded {len(profile_skills)} skills from profile")
     scored = []
 
     for job in jobs:
-        result = score_job(job, cv_text)
+        result = score_job(job, cv_text, profile_skills)
         save_score(job["db_id"], result)
         job.update(result)
         if result["score"] >= SCORE_THRESHOLD:
