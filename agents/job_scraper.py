@@ -11,6 +11,9 @@ import hashlib
 import requests
 import psycopg2
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 SERP_API_KEY = os.environ.get("SERP_API_KEY", "")
