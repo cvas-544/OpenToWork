@@ -66,7 +66,7 @@ Scoring guide:
 
 
 def save_score(job_id: int, result: dict):
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
     cur = conn.cursor()
     cur.execute(
         """
