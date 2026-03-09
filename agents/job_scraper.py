@@ -40,7 +40,7 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
         "wo": location,
         "umkreis": 50,
         "angebotsart": 1,
-        "page": 0,
+        "page": 1,
         "size": 25,
     }
     try:
