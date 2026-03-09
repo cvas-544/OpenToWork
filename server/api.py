@@ -103,21 +103,23 @@ def get_jobs(limit: int = 200, score_min: int = 0):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT id, title, company, location, remote, url, source,
-               score, status, date_posted, created_at
+               score, date_posted, scraped_at, matched_skills, missing_skills
         FROM job_listings
         WHERE (score >= %s OR score IS NULL)
-        ORDER BY created_at DESC
+        ORDER BY scraped_at DESC
         LIMIT %s
     """, (score_min, limit))
     jobs = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
-    # Normalise for dashboard: add empty matched/missing arrays
+    # Normalise for dashboard
     for j in jobs:
-        j["matched"] = j.get("matched") or []
-        j["missing"] = j.get("missing") or []
-        j["date"] = j["created_at"].strftime("%b %d") if j.get("created_at") else ""
-        j["created_at"] = str(j["created_at"])
+        j["matched"] = j.pop("matched_skills") or []
+        j["missing"] = j.pop("missing_skills") or []
+        j["date"] = j["scraped_at"].strftime("%b %d") if j.get("scraped_at") else ""
+        j["created_at"] = str(j["scraped_at"])
+        j["scraped_at"] = j["created_at"]
+        j["status"] = "new"
     return {"jobs": jobs}
 
 
@@ -133,13 +135,13 @@ def get_stats():
     # Today's new jobs
     cur.execute("""
         SELECT COUNT(*) AS today FROM job_listings
-        WHERE created_at >= CURRENT_DATE
+        WHERE scraped_at >= CURRENT_DATE
     """)
     today = cur.fetchone()["today"]
 
-    # Applied + Interviews
+    # Applied + Interviews (from applications table)
     cur.execute("""
-        SELECT status, COUNT(*) AS count FROM job_listings
+        SELECT status, COUNT(*) AS count FROM applications
         WHERE status IN ('applied', 'interview', 'offer')
         GROUP BY status
     """)
@@ -147,22 +149,22 @@ def get_stats():
 
     # Daily trend — last 7 days
     cur.execute("""
-        SELECT TO_CHAR(created_at, 'Dy') AS day, COUNT(*) AS jobs
+        SELECT TO_CHAR(scraped_at, 'Dy') AS day, COUNT(*) AS jobs
         FROM job_listings
-        WHERE created_at >= NOW() - INTERVAL '7 days'
-        GROUP BY TO_CHAR(created_at, 'Dy'), DATE(created_at)
-        ORDER BY DATE(created_at)
+        WHERE scraped_at >= NOW() - INTERVAL '7 days'
+        GROUP BY TO_CHAR(scraped_at, 'Dy'), DATE(scraped_at)
+        ORDER BY DATE(scraped_at)
     """)
     trend = [dict(r) for r in cur.fetchall()]
 
     # Pipeline funnel
     cur.execute("""
         SELECT
-          COUNT(*) FILTER (WHERE TRUE) AS found,
+          (SELECT COUNT(*) FROM job_listings) AS found,
           COUNT(*) FILTER (WHERE status = 'applied') AS applied,
           COUNT(*) FILTER (WHERE status = 'interview') AS interview,
           COUNT(*) FILTER (WHERE status = 'offer') AS offer
-        FROM job_listings
+        FROM applications
     """)
     funnel = cur.fetchone()
 
