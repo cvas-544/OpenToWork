@@ -16,9 +16,27 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DATABASE_URL=${DATABASE_URL}
       - SERP_API_KEY=${SERP_API_KEY}
+      - N8N_SECURE_COOKIE=false
+      - NODES_EXCLUDE=[]
     volumes:
       - n8n_data:/home/node/.n8n
       - ./workflows:/home/node/workflows
+    depends_on:
+      - agents
+
+  agents:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - /home/ubuntu/OpenToWork:/app
+    command: >
+      sh -c "pip install -r requirements.txt -q &&
+             uvicorn server.api:app --host 0.0.0.0 --port 8000"
+    env_file:
+      - /home/ubuntu/OpenToWork/.env
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
 
 volumes:
   n8n_data:
