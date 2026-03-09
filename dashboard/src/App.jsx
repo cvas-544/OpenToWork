@@ -438,63 +438,67 @@ const JobsBoard = () => {
         >
           <div style={{ width: 3, height: 32, borderRadius: 99, background: T.gray200 }} />
         </div>
-        <Card style={{ width: "100%", height: "100%", padding: "24px", overflow: "auto", boxSizing: "border-box" }}>
+        <Card style={{ width: "100%", height: "100%", padding: 0, overflow: "hidden", boxSizing: "border-box" }}>
         {!selected ? (
           <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
             <div style={{ fontSize: 32, color: T.gray200 }}>◈</div>
             <div style={{ fontSize: 12, color: T.gray400, fontFamily: "'DM Mono', monospace", textAlign: "center" }}>Select a job<br/>to see details</div>
           </div>
         ) : (
-        <>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-            <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 64, lineHeight: 1, color: scoreColor(selected.score), letterSpacing: "-0.01em" }}>{selected.score}<span style={{ fontSize: 28 }}>%</span></div>
-            <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 18, alignSelf: "flex-start" }}>✕</button>
-          </div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: T.black, marginBottom: 2, fontFamily: "'Sora', sans-serif" }}>{selected.title}</div>
-          <div style={{ fontSize: 11, color: T.gray400, marginBottom: 20, fontFamily: "'DM Mono', monospace" }}>{selected.company} · {selected.location} · {fmtDate(selected.date_posted)}</div>
-
-          <div style={{ marginBottom: 14 }}>
-            <Label>Matched Skills</Label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {(selected.matched || []).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
+          <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "24px", boxSizing: "border-box" }}>
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, flexShrink: 0 }}>
+              <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 64, lineHeight: 1, color: scoreColor(selected.score), letterSpacing: "-0.01em" }}>{selected.score}<span style={{ fontSize: 28 }}>%</span></div>
+              <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 18, alignSelf: "flex-start" }}>✕</button>
             </div>
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <Label>Missing Skills</Label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {(selected.missing || []).map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
-            </div>
-          </div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.black, marginBottom: 2, fontFamily: "'Sora', sans-serif", flexShrink: 0 }}>{selected.title}</div>
+            <div style={{ fontSize: 11, color: T.gray400, marginBottom: 16, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>{selected.company} · {selected.location} · {fmtDate(selected.date_posted)}</div>
 
-          {selected.description && (
-            <div style={{ marginBottom: 24 }}>
+            {/* Skills */}
+            <div style={{ marginBottom: 10, flexShrink: 0 }}>
+              <Label>Matched Skills</Label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {(selected.matched || []).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
+              </div>
+            </div>
+            <div style={{ marginBottom: 16, flexShrink: 0 }}>
+              <Label>Missing Skills</Label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {(selected.missing || []).map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
+              </div>
+            </div>
+
+            {/* Description — grows to fill remaining space */}
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", marginBottom: 16 }}>
               <Label>Job Description</Label>
               <div style={{
+                flex: 1, minHeight: 0, overflow: "auto", padding: "12px 14px",
                 fontSize: 11, color: T.gray600, lineHeight: 1.7, fontFamily: "'Sora', sans-serif",
-                maxHeight: 200, overflow: "auto", padding: "12px 14px",
                 background: T.gray100, borderRadius: 10, border: `1px solid ${T.gray200}`,
                 whiteSpace: "pre-wrap",
-              }}>{selected.description}</div>
+              }}>{selected.description || <span style={{ color: T.gray400 }}>No description available.</span>}</div>
             </div>
-          )}
 
-          <button style={{
-            width: "100%", padding: "12px", borderRadius: 12, cursor: "pointer", fontSize: 12, fontWeight: 700,
-            background: T.orange, border: "none", color: "#fff", fontFamily: "'DM Mono', monospace",
-            marginBottom: 8, boxShadow: `0 4px 16px rgba(232,98,26,0.3)`, transition: "all 0.2s",
-          }}>⚡ Generate Interview Prep</button>
-          <button
-            onClick={() => selected.url && window.open(selected.url, "_blank")}
-            style={{
-              width: "100%", padding: "12px", borderRadius: 12, fontSize: 12, fontWeight: 700,
-              fontFamily: "'DM Mono', monospace", transition: "all 0.2s",
-              background: selected.url ? T.black : T.gray100,
-              border: `1px solid ${selected.url ? T.black : T.gray200}`,
-              color: selected.url ? "#fff" : T.gray400,
-              cursor: selected.url ? "pointer" : "not-allowed",
-            }}
-          >↗ {selected.url ? `Apply on ${selected.source === "serpapi" ? "LinkedIn / Site" : "Arbeitsagentur"}` : "No Apply Link"}</button>
-        </>
+            {/* Buttons — pinned to bottom */}
+            <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              <button style={{
+                width: "100%", padding: "12px", borderRadius: 12, cursor: "pointer", fontSize: 12, fontWeight: 700,
+                background: T.orange, border: "none", color: "#fff", fontFamily: "'DM Mono', monospace",
+                boxShadow: `0 4px 16px rgba(232,98,26,0.3)`, transition: "all 0.2s",
+              }}>⚡ Generate Interview Prep</button>
+              <button
+                onClick={() => selected.url && window.open(selected.url, "_blank")}
+                style={{
+                  width: "100%", padding: "12px", borderRadius: 12, fontSize: 12, fontWeight: 700,
+                  fontFamily: "'DM Mono', monospace", transition: "all 0.2s",
+                  background: selected.url ? T.black : T.gray100,
+                  border: `1px solid ${selected.url ? T.black : T.gray200}`,
+                  color: selected.url ? "#fff" : T.gray400,
+                  cursor: selected.url ? "pointer" : "not-allowed",
+                }}
+              >↗ {selected.url ? `Apply on ${selected.source === "serpapi" ? "LinkedIn / Site" : "Arbeitsagentur"}` : "No Apply Link"}</button>
+            </div>
+          </div>
         )}
         </Card>
       </div>
