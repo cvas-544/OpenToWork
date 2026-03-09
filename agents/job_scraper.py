@@ -33,21 +33,25 @@ def make_external_id(title: str, company: str, url: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
-def fetch_description(refnr: str) -> str:
-    """Fetch job description from Arbeitsagentur job detail page (SSR ng-state JSON)."""
+def fetch_job_details(refnr: str) -> dict:
+    """Fetch description + external apply URL from Arbeitsagentur job detail page (SSR ng-state JSON)."""
+    empty = {"description": "", "external_url": ""}
     if not refnr:
-        return ""
+        return empty
     try:
         url = f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         match = re.search(r'<script id="ng-state"[^>]*>(.*?)</script>', resp.text, re.DOTALL)
         if not match:
-            return ""
-        data = json.loads(match.group(1))
-        return data.get("jobdetail", {}).get("stellenangebotsBeschreibung", "")
+            return empty
+        detail = json.loads(match.group(1)).get("jobdetail", {})
+        return {
+            "description": detail.get("stellenangebotsBeschreibung", ""),
+            "external_url": detail.get("externeURL", ""),
+        }
     except Exception:
-        return ""
+        return empty
 
 
 def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict]:
@@ -68,13 +72,15 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
         jobs = []
         for item in data.get("stellenangebote", []):
             refnr = item.get("refnr", "")
+            details = fetch_job_details(refnr)
+            apply_url = details["external_url"] or f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
             jobs.append({
                 "title": item.get("beruf", ""),
                 "company": item.get("arbeitgeber", ""),
                 "location": item.get("arbeitsort", {}).get("ort", location),
                 "remote": False,
-                "url": f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}",
-                "description": fetch_description(refnr),
+                "url": apply_url,
+                "description": details["description"],
                 "source": "arbeitsagentur",
                 "date_posted": item.get("aktuelleVeroeffentlichungsdatum", ""),
             })
