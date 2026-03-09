@@ -6,6 +6,7 @@ Output: list of raw job dicts → passed to Agent 2 (cv_matcher)
 """
 
 import os
+import re
 import json
 import hashlib
 import requests
@@ -33,14 +34,18 @@ def make_external_id(title: str, company: str, url: str) -> str:
 
 
 def fetch_description(refnr: str) -> str:
-    """Fetch full job description from Arbeitsagentur detail endpoint using refnr."""
+    """Fetch job description from Arbeitsagentur job detail page (SSR ng-state JSON)."""
     if not refnr:
         return ""
     try:
-        url = f"https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobdetails/{refnr}"
-        resp = requests.get(url, headers={"X-API-Key": ARBEITSAGENTUR_KEY}, timeout=10)
+        url = f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
+        resp = requests.get(url, timeout=10)
         resp.raise_for_status()
-        return resp.json().get("stellenbeschreibung", "")
+        match = re.search(r'<script id="ng-state"[^>]*>(.*?)</script>', resp.text, re.DOTALL)
+        if not match:
+            return ""
+        data = json.loads(match.group(1))
+        return data.get("jobdetail", {}).get("stellenangebotsBeschreibung", "")
     except Exception:
         return ""
 
