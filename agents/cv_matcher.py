@@ -11,13 +11,14 @@ import psycopg2
 import anthropic
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+load_dotenv()
+
 CV_PATH = Path(__file__).parent.parent / "data" / "cv.txt"
 SCORE_THRESHOLD = 60
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 
 def load_cv() -> str:
@@ -93,16 +94,34 @@ def save_score(job_id: int, result: dict):
     conn.close()
 
 
-def run(jobs: list[dict]) -> list[dict]:
+def run() -> list[dict]:
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, title, company, location, description
+        FROM job_listings
+        WHERE score IS NULL
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    if not rows:
+        print("[Agent 2] No unscored jobs found")
+        return []
+
+    jobs = [
+        {"db_id": r[0], "title": r[1], "company": r[2], "location": r[3] or "", "description": r[4] or ""}
+        for r in rows
+    ]
+
     print(f"[Agent 2] Scoring {len(jobs)} jobs against CV")
     cv_text = load_cv()
     scored = []
 
     for job in jobs:
         result = score_job(job, cv_text)
-        job_id = job.get("db_id")
-        if job_id:
-            save_score(job_id, result)
+        save_score(job["db_id"], result)
         job.update(result)
         if result["score"] >= SCORE_THRESHOLD:
             scored.append(job)
@@ -114,13 +133,5 @@ def run(jobs: list[dict]) -> list[dict]:
 
 
 if __name__ == "__main__":
-    # For local testing — load a job from DB
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("SELECT id, title, company, location, description FROM job_listings WHERE score IS NULL LIMIT 5")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    jobs = [{"db_id": r[0], "title": r[1], "company": r[2], "location": r[3], "description": r[4]} for r in rows]
-    result = run(jobs)
+    result = run()
     print(json.dumps(result, indent=2, default=str))

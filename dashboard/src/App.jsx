@@ -137,8 +137,8 @@ const Card = ({ children, style = {}, onClick }) => (
   </div>
 );
 
-const Label = ({ children }) => (
-  <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase", color: T.gray400, marginBottom: 12 }}>
+const Label = ({ children, style = {} }) => (
+  <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase", color: T.gray400, marginBottom: 12, ...style }}>
     {children}
   </div>
 );
@@ -158,7 +158,7 @@ const Overview = () => {
     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 14 }}>
       {/* Big orange hero card */}
       <Card style={{ padding: "28px 32px", background: T.orange, border: "none", boxShadow: "0 8px 32px rgba(232,98,26,0.3)" }}>
-        <Label style={{ color: "rgba(255,255,255,0.6)", marginBottom: 8 }}>Today's Run</Label>
+        <Label style={{ color: "rgba(255,255,255,0.8)", marginBottom: 8 }}>Today's Run</Label>
         <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 72, lineHeight: 0.9, color: "#fff", letterSpacing: "-0.01em" }}>{stats.today}</div>
         <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: "rgba(255,255,255,0.8)", marginTop: 8 }}>New jobs found</div>
         <div style={{ marginTop: 16, fontSize: 11, fontFamily: "'DM Mono', monospace", color: "rgba(255,255,255,0.6)", display: "flex", gap: 16 }}>
