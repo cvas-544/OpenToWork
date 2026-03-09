@@ -241,12 +241,17 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ### Completed ✅
 - Pre-requisite #20: AWS IAM key rotated
 - #1: n8n Docker setup on EC2 — running on 16.170.177.86:5678
-- #2: PostgreSQL schema migration — 5 tables live on RDS
-- #3: Agent 1 Job Scraper — FastAPI server + n8n workflow live, jobs saving to DB
+- #2: PostgreSQL schema — 6 tables on RDS (job_listings, skill_gaps, interview_prep, report_log, applications, user_profile)
+- #3: Agent 1 Job Scraper — FastAPI + n8n workflow live, 97 jobs in DB
+- #22: Dashboard live data — api.py fixed, live jobs showing
+- #4: Agent 2 deployed + working — 9 jobs >= 60 scored, results in RDS
+- Jobs Board: single-row filters, date_posted-based, resizable 62:38 panel, tab persistence
+- Profile tab: DB-backed skills (39 pre-populated), add/remove UI, linked to sidebar user button
+- Agent 2 reads profile skills from DB on every scoring run
 
 ### Session 1 — Next Up 🔜
-- #4: Agent 2 — CV Matcher (Claude Haiku) ← NEXT
-- #5: End-to-end pipeline test (Agents 1→2)
+- #5: End-to-end pipeline test (run Agent 1 → Agent 2 back-to-back via n8n)
+- n8n schedule trigger: activate daily 8am cron
 
 ### Session 2 — Pending
 - #6–10: Agents 3-6 + n8n wiring
@@ -260,4 +265,4 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## Last Updated
-2026-03-09 — Session 1 in progress. #1+#2+#3 done. FastAPI agent server live (port 8000). n8n workflow for Agent 1 working. Next: #4 Agent 2 CV Matcher.
+2026-03-09 — Session 1 extended. #4 Agent 2 live (9/97 jobs scored >= 60). Profile tab done (DB-backed, sidebar linked). 002_user_profile.sql applied. Docker rebuilt. Latest commits: eac81f2 + b9564eb. Next: #5 e2e pipeline test + activate n8n cron.

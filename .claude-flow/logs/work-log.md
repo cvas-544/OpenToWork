@@ -117,6 +117,98 @@
 
 ---
 
+## [2026-03-09] — Session 1 continued — Issue #22: Dashboard Live Data
+
+### [15:00] — opentowork-pm
+**Task**: Fix dashboard to show live data from EC2/RDS + fix UI label color
+**Issue**: #22 (new issue created this session)
+**Status**: Completed ✅
+**Output**:
+- Diagnosed `/data/jobs` and `/data/stats` routes missing from live container (stale image)
+- Fixed `server/api.py` `/data/jobs` query: removed non-existent `status` column, renamed `created_at` → `scraped_at`, added `matched_skills`/`missing_skills` normalisation
+- Fixed `server/api.py` `/data/stats`: all date filters use `scraped_at`, applied/interview/offer counts from `applications` table, pipeline funnel subquery from `job_listings`
+- Fixed container rebuild sequence: `docker compose build --no-cache` (flag on build, not up) + `--force-recreate` on up
+- Dashboard confirmed showing live data: 79 real jobs from RDS, accurate applied/interview counts
+- Fixed `Label` component in `App.jsx`: spread `style` prop so override works (`style = {}` + `...style`)
+- Updated "TODAY'S RUN" orange hero card label opacity from grey → `rgba(255,255,255,0.8)` (matches other white text)
+- All changes pushed to GitHub (commit `e5c8116` + subsequent UI fix commit)
+**Blocking Issues**: None
+**Tokens**: ~40k (est)
+**Time**: ~1.5 hours
+**Next**: Issue #4 — Agent 2 CV Matcher deploy to EC2
+
+---
+
+## [2026-03-09] — Session 1 continued — Issue #4: Agent 2 CV Matcher
+
+### [17:00] — opentowork-pm
+**Task**: Build + deploy Agent 2 — CV Matcher (Claude Haiku)
+**Issue**: #4
+**Status**: Code complete ✅ — Deploy pending (needs cv.txt on EC2) 🔄
+**Output**:
+- `agents/cv_matcher.py` completed:
+  - `run()` is self-contained: fetches unscored jobs from DB, scores each with Claude Haiku, saves scores back
+  - Uses `claude-haiku-4-5-20251001` with 512 max_tokens per job
+  - Returns only jobs >= 60 score threshold
+  - Tier logging: GREEN (>=80), YELLOW (60-79)
+  - Proper `load_dotenv()` + DATABASE_URL from env
+- `server/api.py` POST `/run/agent2` route already wired (was there from initial build)
+- Pushed to GitHub commit `e5c8116`
+- **Blocker**: `data/cv.txt` is gitignored — must be manually scp'd to EC2 before container rebuild
+**Blocking Issues**: cv.txt not on EC2 yet (user action required)
+**Tokens**: ~10k
+**Time**: ~20 min
+**Next**:
+1. `scp -i <key.pem> data/cv.txt ubuntu@16.170.177.86:/home/ubuntu/OpenToWork/data/cv.txt`
+2. On EC2: `cd ~/n8n && git pull` then agents rebuild
+3. Test: `curl -X POST http://localhost:8000/run/agent2`
+4. Close #4 once test passes → move to #5 (e2e pipeline test)
+
+---
+
+## [2026-03-09] — Session 1 continued — Agent 2 Deploy + Dashboard Polish + Profile Tab
+
+### [18:00] — opentowork-pm
+**Task**: Deploy Agent 2, dashboard improvements, Profile tab with DB-backed skills
+**Issues**: #4 (deploy), #22 (UI polish), new (Profile)
+**Status**: Completed ✅
+**Output**:
+
+**Agent 2 Deploy (#4)**:
+- Fixed `cv_matcher.py`: `DATABASE_URL` bare var → `os.environ["DATABASE_URL"]`
+- Fixed JSON parsing: Claude Haiku wraps responses in markdown — strip ` ```json ` before `json.loads()`
+- Created `data/` dir on EC2 (`rm data && mkdir data` — was a file not dir)
+- scp'd comprehensive `cv.txt` to EC2 via `scp -i ~/FinsenseKey.pem`
+- Container rebuilt + tested: 9 jobs >= 60 from 97 total (scores 62–75 saved to RDS)
+- `scripts/backfill_descriptions.py` created (Arbeitsagentur free key doesn't support detail endpoint — descriptions remain empty for old jobs)
+
+**Dashboard Polish (#22 continued)**:
+- Jobs Board: full filter rewrite — single row (location | remote | date range | sort)
+- All filters based on `date_posted` (not `scraped_at`)
+- Date options: All Time / Today / 3d / 7d / 10d / 10–30d / 60d
+- Detail panel: resizable via drag on left edge (`useRef` + mouse events), default 62:38 split
+- Detail panel: always visible, empty state when no job selected
+- Tab persistence: `localStorage.getItem("activeTab")` on init, saved on change
+- `server/api.py`: added `description` + `date_posted` to `/data/jobs` response
+
+**Profile Tab (new)**:
+- `db/migrations/002_user_profile.sql` — `user_profile` table with UNIQUE user_id, pre-populated with 39 CV skills
+- Migration applied to RDS
+- `server/api.py`: `GET /profile` + `POST /profile/skills` (Pydantic body)
+- `agents/cv_matcher.py`: `load_profile_skills()` reads DB, skills appended to every scoring prompt
+- `dashboard/src/api.js`: `fetchProfile()` + `updateSkills()`
+- `dashboard/src/App.jsx`: `ProfileView` component (identity card + skills chips with add/remove)
+- Profile linked to sidebar "Vasu Chukka" button (not a nav item) — highlights orange when active
+- All changes pushed: commits `eac81f2` + `b9564eb`
+- Docker rebuilt on EC2 — all endpoints confirmed working
+
+**Blocking Issues**: None
+**Tokens**: ~80k (est)
+**Time**: ~3 hours
+**Next**: #5 end-to-end pipeline test (Agent 1 → Agent 2) + n8n schedule activation
+
+---
+
 <!-- TEMPLATE FOR FUTURE ENTRIES
 
 ## [YYYY-MM-DD] — Session N — Issue #N: [Title]
