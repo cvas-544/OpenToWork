@@ -32,6 +32,19 @@ def make_external_id(title: str, company: str, url: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
+def fetch_description(hash_id: str) -> str:
+    """Fetch full job description from Arbeitsagentur detail endpoint."""
+    if not hash_id:
+        return ""
+    try:
+        url = f"https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobdetails/{hash_id}"
+        resp = requests.get(url, headers={"X-API-Key": ARBEITSAGENTUR_KEY}, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("stellenbeschreibung", "")
+    except Exception:
+        return ""
+
+
 def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict]:
     url = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
     headers = {"X-API-Key": ARBEITSAGENTUR_KEY}
@@ -49,13 +62,14 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
         data = resp.json()
         jobs = []
         for item in data.get("stellenangebote", []):
+            hash_id = item.get("hashId", "")
             jobs.append({
                 "title": item.get("beruf", ""),
                 "company": item.get("arbeitgeber", ""),
                 "location": item.get("arbeitsort", {}).get("ort", location),
                 "remote": False,
-                "url": f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{item.get('hashId', '')}",
-                "description": item.get("stellenbeschreibung", ""),
+                "url": f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{hash_id}",
+                "description": fetch_description(hash_id),
                 "source": "arbeitsagentur",
                 "date_posted": item.get("eintrittsdatum", ""),
             })
