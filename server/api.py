@@ -1,20 +1,39 @@
 """
 OpenToWork — Agent API
-FastAPI server exposing agent run endpoints for n8n orchestration.
+FastAPI server exposing agent run endpoints + data endpoints for n8n and dashboard.
 """
 
+import os
+import psycopg2
+import psycopg2.extras
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = FastAPI(title="OpenToWork Agent API")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def get_db():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
+# ── Agent Run Endpoints ───────────────────────────────────────────────────────
 
 @app.post("/run/agent1")
 def run_agent1():
@@ -74,3 +93,94 @@ def run_agent6():
         return {"status": "ok", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Dashboard Data Endpoints ──────────────────────────────────────────────────
+
+@app.get("/data/jobs")
+def get_jobs(limit: int = 200, score_min: int = 0):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, title, company, location, remote, url, source,
+               score, status, date_posted, created_at
+        FROM job_listings
+        WHERE (score >= %s OR score IS NULL)
+        ORDER BY created_at DESC
+        LIMIT %s
+    """, (score_min, limit))
+    jobs = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    # Normalise for dashboard: add empty matched/missing arrays
+    for j in jobs:
+        j["matched"] = j.get("matched") or []
+        j["missing"] = j.get("missing") or []
+        j["date"] = j["created_at"].strftime("%b %d") if j.get("created_at") else ""
+        j["created_at"] = str(j["created_at"])
+    return {"jobs": jobs}
+
+
+@app.get("/data/stats")
+def get_stats():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Total jobs
+    cur.execute("SELECT COUNT(*) AS total FROM job_listings")
+    total = cur.fetchone()["total"]
+
+    # Today's new jobs
+    cur.execute("""
+        SELECT COUNT(*) AS today FROM job_listings
+        WHERE created_at >= CURRENT_DATE
+    """)
+    today = cur.fetchone()["today"]
+
+    # Applied + Interviews
+    cur.execute("""
+        SELECT status, COUNT(*) AS count FROM job_listings
+        WHERE status IN ('applied', 'interview', 'offer')
+        GROUP BY status
+    """)
+    status_counts = {r["status"]: r["count"] for r in cur.fetchall()}
+
+    # Daily trend — last 7 days
+    cur.execute("""
+        SELECT TO_CHAR(created_at, 'Dy') AS day, COUNT(*) AS jobs
+        FROM job_listings
+        WHERE created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY TO_CHAR(created_at, 'Dy'), DATE(created_at)
+        ORDER BY DATE(created_at)
+    """)
+    trend = [dict(r) for r in cur.fetchall()]
+
+    # Pipeline funnel
+    cur.execute("""
+        SELECT
+          COUNT(*) FILTER (WHERE TRUE) AS found,
+          COUNT(*) FILTER (WHERE status = 'applied') AS applied,
+          COUNT(*) FILTER (WHERE status = 'interview') AS interview,
+          COUNT(*) FILTER (WHERE status = 'offer') AS offer
+        FROM job_listings
+    """)
+    funnel = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    pipeline = [
+        {"stage": "Found",     "count": funnel["found"]},
+        {"stage": "Applied",   "count": funnel["applied"]},
+        {"stage": "Interview", "count": funnel["interview"]},
+        {"stage": "Offer",     "count": funnel["offer"]},
+    ]
+
+    return {
+        "total": total,
+        "today": today,
+        "applied": status_counts.get("applied", 0),
+        "interviews": status_counts.get("interview", 0),
+        "trend": trend,
+        "pipeline": pipeline,
+    }

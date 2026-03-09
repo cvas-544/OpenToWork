@@ -1,9 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect, createContext, useContext } from "react";
+import { fetchJobs, fetchStats } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
 } from "recharts";
+
+// ─── Data Context ─────────────────────────────────────────────────────────────
+const DataCtx = createContext(null);
+const useData = () => useContext(DataCtx);
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const T = {
@@ -145,25 +150,27 @@ const Tag = ({ children, color, bg }) => (
 );
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
-const Overview = () => (
+const Overview = () => {
+  const { jobs, trendData: trend, pipeline: pipe, stats } = useData();
+  return (
   <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
     {/* Hero stat row */}
     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 14 }}>
       {/* Big orange hero card */}
       <Card style={{ padding: "28px 32px", background: T.orange, border: "none", boxShadow: "0 8px 32px rgba(232,98,26,0.3)" }}>
         <Label style={{ color: "rgba(255,255,255,0.6)", marginBottom: 8 }}>Today's Run</Label>
-        <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 72, lineHeight: 0.9, color: "#fff", letterSpacing: "-0.01em" }}>23</div>
+        <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 72, lineHeight: 0.9, color: "#fff", letterSpacing: "-0.01em" }}>{stats.today}</div>
         <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: "rgba(255,255,255,0.8)", marginTop: 8 }}>New jobs found</div>
         <div style={{ marginTop: 16, fontSize: 11, fontFamily: "'DM Mono', monospace", color: "rgba(255,255,255,0.6)", display: "flex", gap: 16 }}>
-          <span>6 top matches</span>
+          <span>{jobs.filter(j => j.score >= 80).length} top matches</span>
           <span>·</span>
-          <span>Last run 8:08am</span>
+          <span>Live data</span>
         </div>
       </Card>
       {[
-        { label: "Applied", value: "11", sub: "3 this week" },
-        { label: "Interviews", value: "3", sub: "1 pending" },
-        { label: "Total Found", value: "98", sub: "all time" },
+        { label: "Applied", value: String(stats.applied), sub: "tracked" },
+        { label: "Interviews", value: String(stats.interviews), sub: "scheduled" },
+        { label: "Total Found", value: String(stats.total), sub: "all time" },
       ].map(s => (
         <Card key={s.label} style={{ padding: "24px 28px" }}>
           <Label>{s.label}</Label>
@@ -179,7 +186,7 @@ const Overview = () => (
       <Card style={{ padding: "24px 28px" }}>
         <Label>Daily Jobs Found — This Week</Label>
         <ResponsiveContainer width="100%" height={120}>
-          <AreaChart data={trendData}>
+          <AreaChart data={trend}>
             <defs>
               <linearGradient id="og" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={T.orange} stopOpacity={0.15} />
@@ -197,7 +204,7 @@ const Overview = () => (
       <Card style={{ padding: "24px 28px" }}>
         <Label>Application Pipeline</Label>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {pipeline.map((p, i) => (
+          {pipe.map((p, i) => (
             <div key={p.stage} style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 64, fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray600 }}>{p.stage}</div>
               <div style={{ flex: 1, height: 6, background: T.gray100, borderRadius: 99, overflow: "hidden" }}>
@@ -236,7 +243,7 @@ const Overview = () => (
         <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.orange, cursor: "pointer" }}>View all →</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-        {jobsData.filter(j => j.score >= 80).slice(0, 3).map(j => (
+        {jobs.filter(j => j.score >= 80).slice(0, 3).map(j => (
           <div key={j.id} style={{ padding: "16px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}`, cursor: "pointer", transition: "all 0.2s" }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = T.orange; e.currentTarget.style.background = T.orangeXLight; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = T.gray200; e.currentTarget.style.background = T.gray100; }}
@@ -248,21 +255,23 @@ const Overview = () => (
             <div style={{ fontSize: 13, fontWeight: 700, color: T.black, marginBottom: 2, fontFamily: "'Sora', sans-serif" }}>{j.title}</div>
             <div style={{ fontSize: 11, color: T.gray400, marginBottom: 10, fontFamily: "'DM Mono', monospace" }}>{j.company} · {j.location}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {j.matched.slice(0, 2).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
-              {j.missing.map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
+              {(j.matched || []).slice(0, 2).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
+              {(j.missing || []).map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
             </div>
           </div>
         ))}
       </div>
     </Card>
   </div>
-);
+  );
+};
 
 // ─── Jobs Board ───────────────────────────────────────────────────────────────
 const JobsBoard = () => {
+  const { jobs } = useData();
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
-  const filtered = filter === "all" ? jobsData : jobsData.filter(j => j.status === filter);
+  const filtered = filter === "all" ? jobs : jobs.filter(j => j.status === filter);
 
   return (
     <div style={{ display: "flex", gap: 14, height: "calc(100vh - 140px)" }}>
@@ -318,13 +327,13 @@ const JobsBoard = () => {
           <div style={{ marginBottom: 14 }}>
             <Label>Matched Skills</Label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {selected.matched.map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
+              {(selected.matched || []).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
             </div>
           </div>
           <div style={{ marginBottom: 24 }}>
             <Label>Missing Skills</Label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {selected.missing.map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
+              {(selected.missing || []).map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
             </div>
           </div>
 
@@ -345,8 +354,9 @@ const JobsBoard = () => {
 
 // ─── Map View ─────────────────────────────────────────────────────────────────
 const MapView = () => {
-  const onsite = jobsData.filter(j => !j.remote && j.lat);
-  const remote = jobsData.filter(j => j.remote);
+  const { jobs } = useData();
+  const onsite = jobs.filter(j => !j.remote && j.lat);
+  const remote = jobs.filter(j => j.remote);
   const toXY = (lat, lng) => ({
     x: ((lng - 5.8) / (15.2 - 5.8)) * 340 + 30,
     y: ((55.2 - lat) / (55.2 - 47.2)) * 260 + 20,
@@ -728,6 +738,25 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const pageTitle = navItems.find(n => n.id === active)?.label || "";
 
+  // ── Live data state (falls back to mock if API unavailable) ──
+  const [jobs, setJobs] = useState(jobsData);
+  const [liveStats, setLiveStats] = useState({ today: 23, total: 98, applied: 11, interviews: 3 });
+  const [liveTrend, setLiveTrend] = useState(trendData);
+  const [livePipeline, setLivePipeline] = useState(pipeline);
+
+  useEffect(() => {
+    fetchJobs().then(data => { if (data) setJobs(data); });
+    fetchStats().then(data => {
+      if (data) {
+        setLiveStats({ today: data.today, total: data.total, applied: data.applied, interviews: data.interviews });
+        if (data.trend?.length) setLiveTrend(data.trend);
+        if (data.pipeline?.length) setLivePipeline(data.pipeline);
+      }
+    });
+  }, []);
+
+  const ctxValue = { jobs, trendData: liveTrend, pipeline: livePipeline, stats: liveStats };
+
   const renderPage = () => {
     if (active === "overview") return <Overview />;
     if (active === "jobs") return <JobsBoard />;
@@ -739,6 +768,7 @@ export default function App() {
   };
 
   return (
+    <DataCtx.Provider value={ctxValue}>
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Sora:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
@@ -788,5 +818,6 @@ export default function App() {
         </div>
       </div>
     </>
+    </DataCtx.Provider>
   );
 }
