@@ -172,9 +172,11 @@ def get_stats():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # Total jobs
-    cur.execute("SELECT COUNT(*) AS total FROM job_listings")
-    total = cur.fetchone()["total"]
+    # Total jobs + last run
+    cur.execute("SELECT COUNT(*) AS total, MAX(scraped_at) AS last_run FROM job_listings")
+    row = cur.fetchone()
+    total = row["total"]
+    last_run = row["last_run"]
 
     # Today's new jobs
     cur.execute("""
@@ -229,4 +231,5 @@ def get_stats():
         "interviews": status_counts.get("interview", 0),
         "trend": trend,
         "pipeline": pipeline,
+        "last_run": last_run.isoformat() if last_run else None,
     }

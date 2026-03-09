@@ -933,15 +933,15 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
       position: "relative",
     }}>
       {/* Brand */}
-      <div style={{ padding: "20px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${T.gray200}` }}>
-        <div style={{ width: 32, height: 32, borderRadius: 10, background: T.orange, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#fff", fontWeight: 700, boxShadow: `0 4px 12px rgba(232,98,26,0.35)` }}>⬡</div>
+      <div style={{ padding: "20px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${T.gray200}`, justifyContent: collapsed ? "center" : "flex-start" }}>
+        {!collapsed && <div style={{ width: 32, height: 32, borderRadius: 10, background: T.orange, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#fff", fontWeight: 700, boxShadow: `0 4px 12px rgba(232,98,26,0.35)` }}>⬡</div>}
         {!collapsed && (
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: T.black, fontFamily: "'Sora', sans-serif", letterSpacing: "-0.02em" }}>OpenToWork</div>
             <div style={{ fontSize: 9, color: T.gray400, fontFamily: "'DM Mono', monospace", textTransform: "uppercase", letterSpacing: "0.08em" }}>Intelligence System</div>
           </div>
         )}
-        <button onClick={() => setCollapsed(!collapsed)} style={{ marginLeft: "auto", background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 16, flexShrink: 0, padding: 4 }}>
+        <button onClick={() => setCollapsed(!collapsed)} style={{ marginLeft: collapsed ? 0 : "auto", background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 16, flexShrink: 0, padding: 4 }}>
           {collapsed ? "›" : "‹"}
         </button>
       </div>
@@ -1023,7 +1023,7 @@ export default function App() {
     fetchJobs().then(data => { if (data) setJobs(data); });
     fetchStats().then(data => {
       if (data) {
-        setLiveStats({ today: data.today, total: data.total, applied: data.applied, interviews: data.interviews });
+        setLiveStats({ today: data.today, total: data.total, applied: data.applied, interviews: data.interviews, last_run: data.last_run });
         if (data.trend?.length) setLiveTrend(data.trend);
         if (data.pipeline?.length) setLivePipeline(data.pipeline);
       }
@@ -1076,7 +1076,9 @@ export default function App() {
           }}>
             <div>
               <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, letterSpacing: "-0.01em", color: T.black, lineHeight: 1 }}>{pageTitle}</div>
-              <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: T.gray400, marginTop: 2, textTransform: "uppercase", letterSpacing: "0.08em" }}>Sunday, March 8 · Last run 8:08am</div>
+              <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: T.gray400, marginTop: 2, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                {liveStats.last_run ? (() => { const d = new Date(liveStats.last_run); return `${d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})} · Last run ${d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}`; })() : "No runs yet"}
+              </div>
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 16px", background: T.orangeXLight, borderRadius: 99, border: `1px solid ${T.orange}44` }}>
