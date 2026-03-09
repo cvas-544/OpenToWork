@@ -11,8 +11,10 @@ import json
 import hashlib
 import requests
 import psycopg2
+import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv
+from apify_client import ApifyClient
 
 load_dotenv()
 
@@ -93,9 +95,6 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
 def scrape_apify_linkedin(keyword: str) -> list[dict]:
     if not APIFY_TOKEN:
         return []
-    import urllib.parse
-    actor_id = "curious_coder~linkedin-jobs-scraper"
-    api_url = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
     # Build LinkedIn search URL: last week filter (f_TPR=r604800)
     search_url = (
         "https://www.linkedin.com/jobs/search/?"
@@ -105,13 +104,13 @@ def scrape_apify_linkedin(keyword: str) -> list[dict]:
             "f_TPR": "r604800",
         })
     )
-    payload = {"startUrls": search_url}
     try:
-        resp = requests.post(api_url, params={"token": APIFY_TOKEN}, json=payload, timeout=120)
-        resp.raise_for_status()
-        items = resp.json()
+        client = ApifyClient(APIFY_TOKEN)
+        run = client.actor("curious_coder/linkedin-jobs-scraper").call(
+            run_input={"urls": [search_url], "count": 100}
+        )
         jobs = []
-        for item in items:
+        for item in client.dataset(run["defaultDatasetId"]).iterate_items():
             location = item.get("location", "") or ""
             apply_url = item.get("applyUrl", "") or item.get("link", "") or ""
             jobs.append({
