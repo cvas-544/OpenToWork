@@ -107,7 +107,6 @@ const navItems = [
   { id: "timeline", label: "Timeline", icon: "▭" },
   { id: "interview", label: "Interview Prep", icon: "◇" },
   { id: "analytics", label: "Analytics", icon: "◉" },
-  { id: "profile", label: "Profile", icon: "◐" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -935,16 +934,22 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
         )}
       </div>
 
-      {/* User */}
-      <div style={{ padding: "14px 12px", borderTop: `1px solid ${T.gray200}`, display: "flex", alignItems: "center", gap: 10 }}>
+      {/* User — click to open Profile */}
+      <button onClick={() => setActive("profile")} style={{
+        padding: "14px 12px", borderTop: `1px solid ${T.gray200}`,
+        display: "flex", alignItems: "center", gap: 10,
+        background: active === "profile" ? T.orangeXLight : "transparent",
+        border: "none", cursor: "pointer", width: "100%", textAlign: "left",
+        transition: "background 0.18s",
+      }}>
         <div style={{ width: 28, height: 28, borderRadius: 99, background: T.orange, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 800, boxShadow: `0 2px 8px rgba(232,98,26,0.3)` }}>V</div>
         {!collapsed && (
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif" }}>Vasu Chukka</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: active === "profile" ? T.orange : T.black, fontFamily: "'Sora', sans-serif" }}>Vasu Chukka</div>
             <div style={{ fontSize: 9, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>Munich, DE</div>
           </div>
         )}
-      </div>
+      </button>
     </div>
   );
 };
