@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
 import { fetchJobs, fetchStats, fetchProfile, updateSkills } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
@@ -513,71 +515,245 @@ const JobsBoard = () => {
 };
 
 // ─── Map View ─────────────────────────────────────────────────────────────────
+const CITY_COORDS = {
+  "münchen": [48.137, 11.576], "munich": [48.137, 11.576], "muenchen": [48.137, 11.576],
+  "berlin": [52.520, 13.405],
+  "hamburg": [53.551, 10.000],
+  "frankfurt": [50.110, 8.682],
+  "stuttgart": [48.775, 9.182],
+  "düsseldorf": [51.227, 6.773], "dusseldorf": [51.227, 6.773],
+  "cologne": [50.938, 6.960], "köln": [50.938, 6.960], "koeln": [50.938, 6.960],
+  "nuremberg": [49.452, 11.077], "nürnberg": [49.452, 11.077], "nuernberg": [49.452, 11.077],
+  "hannover": [52.374, 9.738], "hanover": [52.374, 9.738],
+  "leipzig": [51.340, 12.375],
+  "bremen": [53.079, 8.801],
+  "dresden": [51.050, 13.738],
+  "mannheim": [49.487, 8.466],
+  "augsburg": [48.370, 10.897],
+  "dortmund": [51.514, 7.468],
+  "essen": [51.455, 7.011],
+  "wiesbaden": [50.078, 8.239],
+  "bonn": [50.735, 7.099],
+  "karlsruhe": [49.006, 8.404],
+  "wuppertal": [51.264, 7.178],
+  "bielefeld": [52.021, 8.534],
+  "bochum": [51.482, 7.216],
+  "münster": [51.961, 7.628], "muenster": [51.961, 7.628],
+  "germany": [51.163, 10.448],
+  "deutschland": [51.163, 10.448],
+};
+
+const getCityLatLng = (location) => {
+  if (!location) return null;
+  const key = location.toLowerCase().trim().replace(/,.*$/, "").trim(); // strip ", Germany" etc
+  if (CITY_COORDS[key]) return CITY_COORDS[key];
+  for (const [city, coords] of Object.entries(CITY_COORDS)) {
+    if (key.includes(city)) return coords;
+  }
+  // fallback: check original string with country stripped
+  const full = location.toLowerCase();
+  for (const [city, coords] of Object.entries(CITY_COORDS)) {
+    if (full.includes(city)) return coords;
+  }
+  return null;
+};
+
+const makeCityIcon = (count) => L.divIcon({
+  className: "",
+  html: `<div style="
+    width:48px;height:48px;border-radius:50%;
+    background:#E8621A;color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Bebas Neue',Anton,sans-serif;font-size:18px;letter-spacing:0.5px;
+    border:3px solid #fff;
+    box-shadow:0 4px 20px rgba(232,98,26,0.4);
+    cursor:pointer;
+  ">${count}</div>`,
+  iconSize: [48, 48],
+  iconAnchor: [24, 24],
+  popupAnchor: [0, -28],
+});
+
+const FlyTo = ({ pos }) => { const map = useMap(); useEffect(() => { if (pos) map.flyTo(pos, 10, { duration: 1.2 }); }, [pos, map]); return null; };
+
 const MapView = () => {
   const { jobs } = useData();
-  const onsite = jobs.filter(j => !j.remote && j.lat);
-  const remote = jobs.filter(j => j.remote);
-  const toXY = (lat, lng) => ({
-    x: ((lng - 5.8) / (15.2 - 5.8)) * 340 + 30,
-    y: ((55.2 - lat) / (55.2 - 47.2)) * 260 + 20,
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [flyTo, setFlyTo] = useState(null);
+
+  const withCoords = useMemo(() =>
+    jobs.map(j => ({ ...j, _latlng: getCityLatLng(j.location) })),
+    [jobs]
+  );
+
+  const onsite = withCoords.filter(j => !j.remote && j._latlng);
+
+  // Group onsite jobs by city (using latlng as key)
+  const cityGroups = useMemo(() => {
+    const groups = {};
+    onsite.forEach(j => {
+      const key = j._latlng.join(",");
+      if (!groups[key]) groups[key] = { latlng: j._latlng, jobs: [], city: j.location };
+      groups[key].jobs.push(j);
+    });
+    return Object.values(groups);
+  }, [onsite]);
+  const allList = withCoords.filter(j => {
+    const q = search.toLowerCase();
+    return !q || j.title?.toLowerCase().includes(q) || j.company?.toLowerCase().includes(q) || j.location?.toLowerCase().includes(q);
   });
 
-  return (
-    <div style={{ display: "flex", gap: 14, height: "calc(100vh - 140px)" }}>
-      <Card style={{ flex: 1, padding: "24px", overflow: "hidden" }}>
-        <Label>Germany — On-site Job Locations</Label>
-        <svg viewBox="0 0 400 310" style={{ width: "100%", maxHeight: 360 }}>
-          <path d="M180,20 L220,18 L240,35 L260,30 L280,45 L290,65 L310,80 L320,110 L300,130 L310,155 L295,180 L280,210 L260,240 L240,265 L210,280 L185,270 L165,255 L145,240 L120,225 L100,200 L90,175 L95,150 L80,125 L85,100 L100,80 L120,65 L140,50 L160,35 Z"
-            fill="rgba(232,98,26,0.04)" stroke="rgba(232,98,26,0.2)" strokeWidth="1.5" />
-          {[{name:"Berlin",lat:52.52,lng:13.4},{name:"Munich",lat:48.13,lng:11.58},{name:"Hamburg",lat:53.55,lng:10.0},{name:"Frankfurt",lat:50.11,lng:8.68}].map(c => {
-            const {x, y} = toXY(c.lat, c.lng);
-            return <text key={c.name} x={x} y={y+14} fontSize="9" fill={T.gray400} textAnchor="middle" fontFamily="DM Mono">{c.name}</text>;
-          })}
-          {onsite.map(j => {
-            const {x, y} = toXY(j.lat, j.lng);
-            return (
-              <g key={j.id}>
-                <circle cx={x} cy={y} r={18} fill={scoreBg(j.score)} stroke={scoreColor(j.score)} strokeWidth="1.5" opacity="0.7" />
-                <circle cx={x} cy={y} r={5} fill={scoreColor(j.score)} />
-                <text x={x} y={y-22} fontSize="9" fill={T.gray600} textAnchor="middle" fontFamily="DM Mono">{j.company}</text>
-                <text x={x} y={y-12} fontSize="10" fill={scoreColor(j.score)} textAnchor="middle" fontFamily="Bebas Neue,Anton">{j.score}%</text>
-              </g>
-            );
-          })}
-        </svg>
-        <div style={{ display: "flex", gap: 20, marginTop: 12 }}>
-          {[{l:"≥80% Strong",c:T.green,b:T.greenLight},{l:"60–79% Good",c:T.amber,b:T.amberLight},{l:"<60% Weak",c:T.red,b:T.redLight}].map(l => (
-            <div key={l.l} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: l.c }} />
-              <span style={{ fontSize: 10, color: T.gray500, fontFamily: "'DM Mono', monospace" }}>{l.l}</span>
-            </div>
-          ))}
-        </div>
-      </Card>
+  const handleSelect = (j) => {
+    setSelected(j);
+    if (j._latlng) setFlyTo(j._latlng);
+  };
 
-      <Card style={{ width: 280, padding: "24px", flexShrink: 0, overflow: "auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-          <Label>Remote Jobs</Label>
-          <div style={{ marginBottom: 12, marginLeft: 4 }}>
-            <Tag color={T.orange} bg={T.orangeXLight}>{remote.length} total</Tag>
+  return (
+    <div style={{ display: "flex", height: "calc(100vh - 140px)", gap: 0, borderRadius: 18, overflow: "hidden", boxShadow: "0 2px 24px rgba(0,0,0,0.12)" }}>
+      {/* ── Left Sidebar ── */}
+      <div style={{ width: 300, flexShrink: 0, background: "#fff", display: "flex", flexDirection: "column", borderRadius: "18px 0 0 18px", overflow: "hidden", borderRight: `1px solid ${T.gray200}` }}>
+        {/* Header */}
+        <div style={{ padding: "20px 20px 12px", borderBottom: `1px solid ${T.gray200}` }}>
+          <div style={{ fontFamily: "'Bebas Neue',Anton,sans-serif", fontSize: 22, letterSpacing: 2, color: T.black, marginBottom: 12 }}>JOB MAP</div>
+          <div style={{ position: "relative" }}>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search jobs, companies..."
+              style={{
+                width: "100%", padding: "9px 14px 9px 36px", borderRadius: 10,
+                background: T.gray100, border: `1px solid ${T.gray200}`,
+                color: T.black, fontSize: 12, fontFamily: "'DM Mono',monospace", outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: T.gray400, fontSize: 13 }}>⌕</span>
+          </div>
+          <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+            <span style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: T.gray600, padding: "3px 8px", borderRadius: 99, border: `1px solid ${T.gray200}`, background: T.gray100 }}>
+              {onsite.length} on-site
+            </span>
+            <span style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: T.gray600, padding: "3px 8px", borderRadius: 99, border: `1px solid ${T.gray200}`, background: T.gray100 }}>
+              {withCoords.filter(j => j.remote).length} remote
+            </span>
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {remote.map(j => (
-            <div key={j.id} style={{ padding: "14px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 36, lineHeight: 1, color: scoreColor(j.score) }}>{j.score}<span style={{ fontSize: 16 }}>%</span></div>
-                <Tag color={T.green} bg={T.greenLight}>🌐 Remote</Tag>
+
+        {/* Job list */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {allList.map(j => {
+            const col = scoreColor(j.score);
+            const isActive = selected?.id === j.id;
+            return (
+              <div key={j.id} onClick={() => handleSelect(j)} style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+                cursor: "pointer", transition: "background 0.15s",
+                background: isActive ? T.orangeXLight : "transparent",
+                borderLeft: `3px solid ${isActive ? T.orange : "transparent"}`,
+              }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.gray100; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
+              >
+                <div style={{
+                  width: 38, height: 38, borderRadius: "50%", flexShrink: 0,
+                  background: col, display: "flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: "'Bebas Neue',Anton,sans-serif", fontSize: 13, color: "#fff",
+                  boxShadow: `0 2px 8px ${col}55`,
+                }}>
+                  {j.score || "—"}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.black, fontFamily: "'Sora',sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.title}</div>
+                  <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono',monospace", marginTop: 2 }}>
+                    {j.company} · {j.remote ? "🌐 Remote" : j.location}
+                  </div>
+                </div>
+                <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 99, flexShrink: 0,
+                  background: j.source === "linkedin" ? "#E8F0F9" : "#E8F4EC",
+                  color: j.source === "linkedin" ? "#0A66C2" : "#2E6B3E",
+                  fontFamily: "'DM Mono',monospace" }}>
+                  {j.source === "linkedin" ? "LI" : "DE"}
+                </span>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif" }}>{j.title}</div>
-              <div style={{ fontSize: 11, color: T.gray400, marginBottom: 8, fontFamily: "'DM Mono', monospace" }}>{j.company}</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {j.missing.map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
-              </div>
-            </div>
-          ))}
+            );
+          })}
+          {allList.length === 0 && (
+            <div style={{ padding: 24, textAlign: "center", color: T.gray400, fontSize: 12, fontFamily: "'DM Mono',monospace" }}>No jobs found</div>
+          )}
         </div>
-      </Card>
+      </div>
+
+      {/* ── Map ── */}
+      <div style={{ flex: 1, position: "relative" }}>
+        <MapContainer
+          center={[51.0, 10.0]}
+          zoom={6}
+          style={{ width: "100%", height: "100%" }}
+          zoomControl={false}
+        >
+          <TileLayer
+            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+            attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>'
+            subdomains="abcd"
+            maxZoom={19}
+          />
+          <FlyTo pos={flyTo} />
+          {cityGroups.map(group => (
+            <Marker
+              key={group.latlng.join(",")}
+              position={group.latlng}
+              icon={makeCityIcon(group.jobs.length)}
+            >
+              <Popup closeButton={false} maxWidth={280}>
+                <div style={{
+                  background: "#fff", borderRadius: 14, padding: "14px", width: 260,
+                  border: `1px solid ${T.gray200}`, fontFamily: "'Sora',sans-serif",
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ fontFamily: "'Bebas Neue',Anton,sans-serif", fontSize: 16, letterSpacing: 1, color: T.black }}>{group.city?.split(",")[0]?.toUpperCase()}</div>
+                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: T.orangeXLight, color: T.orange, fontFamily: "'DM Mono',monospace" }}>{group.jobs.length} jobs</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
+                    {group.jobs.map(j => (
+                      <div key={j.id} style={{ padding: "8px 10px", background: T.gray100, borderRadius: 10, border: `1px solid ${T.gray200}` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.black }}>{j.title}</div>
+                          <div style={{ fontFamily: "'Bebas Neue',Anton,sans-serif", fontSize: 16, color: scoreColor(j.score), lineHeight: 1 }}>{j.score}</div>
+                        </div>
+                        <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono',monospace", marginBottom: 6 }}>{j.company}</div>
+                        <button onClick={() => j.url && window.open(j.url, "_blank")} style={{ padding: "4px 10px", borderRadius: 7, cursor: "pointer", background: T.orange, border: "none", color: "#fff", fontSize: 10, fontFamily: "'DM Mono',monospace" }}>↗ Apply</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+
+        {/* Selected job overlay (bottom-right) */}
+        {selected && !selected._latlng && (
+          <div style={{
+            position: "absolute", bottom: 20, right: 20, zIndex: 1000,
+            background: "#fff", borderRadius: 14, padding: "16px", width: 260,
+            border: `1px solid ${T.gray200}`, boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.black, fontFamily: "'Sora',sans-serif" }}>{selected.title}</div>
+              <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 14 }}>✕</button>
+            </div>
+            <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono',monospace", marginBottom: 12 }}>
+              {selected.company} · {selected.remote ? "🌐 Remote" : selected.location}
+            </div>
+            <button
+              onClick={() => selected.url && window.open(selected.url, "_blank")}
+              style={{ width: "100%", padding: "9px", borderRadius: 9, cursor: "pointer", background: T.orange, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: "'DM Mono',monospace" }}
+            >↗ Apply Now</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

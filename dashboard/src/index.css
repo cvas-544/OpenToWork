@@ -20,3 +20,18 @@ body {
 .font-mono {
   font-family: 'DM Mono', monospace;
 }
+
+/* Leaflet popup — remove white background */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.leaflet-popup-content {
+  margin: 0 !important;
+}
+.leaflet-container {
+  border-radius: 0 18px 18px 0;
+}
