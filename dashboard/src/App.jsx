@@ -428,6 +428,7 @@ const JobsBoard = () => {
                 <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>{j.company} · {j.location}</div>
               </div>
               <Tag color={statusStyle[j.status]?.color} bg={statusStyle[j.status]?.bg}>{j.status}</Tag>
+              <Tag color={j.source === "linkedin" ? "#0A66C2" : "#2E6B3E"} bg={j.source === "linkedin" ? "#E8F0F9" : "#E8F4EC"}>{j.source === "linkedin" ? "LinkedIn" : "Agentur"}</Tag>
               <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", width: 60, textAlign: "right" }}>{fmtDate(j.date_posted)}</div>
             </div>
           ))}
@@ -501,7 +502,7 @@ const JobsBoard = () => {
                   color: selected.url ? "#fff" : T.gray400,
                   cursor: selected.url ? "pointer" : "not-allowed",
                 }}
-              >↗ {selected.url ? `Apply on ${selected.source === "serpapi" ? "LinkedIn / Site" : "Arbeitsagentur"}` : "No Apply Link"}</button>
+              >↗ {selected.url ? `Apply on ${selected.source === "linkedin" ? "LinkedIn" : "Arbeitsagentur"}` : "No Apply Link"}</button>
             </div>
           </div>
         )}
