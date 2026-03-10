@@ -978,7 +978,8 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
       borderRight: `1px solid ${T.gray200}`,
       transition: "width 0.3s cubic-bezier(0.34,1.56,0.64,1)",
       overflow: "hidden",
-      position: "relative",
+      position: "sticky",
+      top: 0,
     }}>
       {/* Brand */}
       <div style={{ padding: "20px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${T.gray200}`, justifyContent: collapsed ? "center" : "flex-start" }}>
@@ -995,7 +996,7 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
       </div>
 
       {/* Nav */}
-      <div style={{ padding: "12px 8px", flex: 1, overflow: "auto" }}>
+      <div style={{ padding: "12px 8px", flex: 1, overflow: "hidden" }}>
         {!collapsed && <div style={{ fontSize: 9, color: T.gray400, letterSpacing: "0.12em", textTransform: "uppercase", padding: "4px 8px 10px", fontFamily: "'DM Mono', monospace" }}>Dashboard</div>}
         {navItems.map(item => (
           <button key={item.id} onClick={() => setActive(item.id)} style={{
