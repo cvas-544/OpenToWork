@@ -104,7 +104,7 @@ const navItems = [
   { id: "jobs", label: "Jobs Board", icon: "◈" },
   { id: "map", label: "Map View", icon: "◎" },
   { id: "gaps", label: "Skill Gaps", icon: "△" },
-  { id: "timeline", label: "Timeline", icon: "▭" },
+  { id: "timeline", label: "Projects Timeline", icon: "▭" },
   { id: "interview", label: "Interview Prep", icon: "◇" },
   { id: "analytics", label: "Analytics", icon: "◉" },
 ];
