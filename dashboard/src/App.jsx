@@ -978,8 +978,8 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
       borderRight: `1px solid ${T.gray200}`,
       transition: "width 0.3s cubic-bezier(0.34,1.56,0.64,1)",
       overflow: "hidden",
-      position: "sticky",
-      top: 0,
+      position: "relative",
+      flexShrink: 0,
     }}>
       {/* Brand */}
       <div style={{ padding: "20px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${T.gray200}`, justifyContent: collapsed ? "center" : "flex-start" }}>
@@ -1106,7 +1106,7 @@ export default function App() {
         @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
 
-      <div style={{ display: "flex", minHeight: "100vh", background: "#EDEAE4", fontFamily: "'Sora', sans-serif", position: "relative", overflow: "hidden" }}>
+      <div style={{ display: "flex", height: "100vh", background: "#EDEAE4", fontFamily: "'Sora', sans-serif", position: "relative", overflow: "hidden" }}>
         {/* Ambient blobs */}
         <div style={{ position: "fixed", top: "-5%", right: "15%", width: 500, height: 500, borderRadius: "50%", background: "radial-gradient(circle, rgba(232,98,26,0.08) 0%, transparent 70%)", pointerEvents: "none" }} />
         <div style={{ position: "fixed", bottom: "5%", left: "25%", width: 400, height: 300, borderRadius: "50%", background: "radial-gradient(circle, rgba(232,98,26,0.05) 0%, transparent 70%)", pointerEvents: "none" }} />
