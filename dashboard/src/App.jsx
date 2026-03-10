@@ -641,19 +641,19 @@ const barColor = (s) => s === "active" ? T.orange : s === "completed" ? "#2C2C2C
 const barTextColor = (s) => s === "active" ? "#fff" : "#666";
 
 const Timeline = () => (
-  <div style={{ background: "#111", borderRadius: 16, padding: "40px 44px", display: "flex", flexDirection: "column", gap: 0 }}>
+  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
 
     {/* ── Hero header ── */}
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 48 }}>
       <div>
-        <div style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 64, lineHeight: 0.9, color: "#fff", letterSpacing: 3 }}>PROJECTS</div>
+        <div style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 64, lineHeight: 0.9, color: T.black, letterSpacing: 3 }}>PROJECTS</div>
         <div style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 64, lineHeight: 0.9, color: T.orange, letterSpacing: 3 }}>TIMELINE</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", paddingTop: 8 }}>
         {[["active", T.orange], ["paused", "#3A3A3A"], ["completed", "#2C2C2C"]].map(([s, c]) => (
           <div key={s} style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ width: 24, height: 8, background: c, borderRadius: 2, border: s === "completed" ? "1px solid #444" : "none" }} />
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "#555", textTransform: "uppercase", letterSpacing: 1 }}>{s}</span>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray600, textTransform: "uppercase", letterSpacing: 1 }}>{s}</span>
           </div>
         ))}
       </div>
@@ -663,24 +663,24 @@ const Timeline = () => (
     <div style={{ overflowX: "auto" }}>
       {/* Column headers */}
       <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", marginBottom: 10 }}>
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "#444", textTransform: "uppercase", letterSpacing: 1 }}>Project</div>
+        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray400, textTransform: "uppercase", letterSpacing: 1 }}>Project</div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${GANTT_MONTHS.length}, 1fr)` }}>
           {GANTT_MONTHS.map((m, i) => (
-            <div key={i} style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "#444", textAlign: "center", borderLeft: i > 0 ? "1px solid #222" : "none", paddingBottom: 8 }}>{m}</div>
+            <div key={i} style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray400, textAlign: "center", borderLeft: i > 0 ? `1px solid ${T.gray200}` : "none", paddingBottom: 8 }}>{m}</div>
           ))}
         </div>
       </div>
 
       {/* Top rule */}
-      <div style={{ height: 1, background: "#2A2A2A", marginBottom: 0 }} />
+      <div style={{ height: 1, background: T.gray200, marginBottom: 0 }} />
 
       {/* Rows */}
       {projects.map(p => (
-        <div key={p.id} style={{ display: "grid", gridTemplateColumns: "180px 1fr", alignItems: "center", borderBottom: "1px solid #1A1A1A", padding: "12px 0" }}>
+        <div key={p.id} style={{ display: "grid", gridTemplateColumns: "180px 1fr", alignItems: "center", borderBottom: `1px solid ${T.gray200}`, padding: "12px 0" }}>
           {/* Name + stack */}
           <div style={{ paddingRight: 20 }}>
-            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 12, fontWeight: 600, color: p.status === "active" ? "#fff" : "#555" }}>{p.name}</div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: "#383838", marginTop: 3 }}>
+            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 12, fontWeight: 600, color: p.status === "active" ? T.black : T.gray400 }}>{p.name}</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: T.gray400, marginTop: 3 }}>
               {p.skills.slice(0, 3).join(" · ")}
             </div>
           </div>
@@ -689,7 +689,7 @@ const Timeline = () => (
             {/* Vertical grid lines */}
             <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: `repeat(${GANTT_MONTHS.length}, 1fr)`, pointerEvents: "none" }}>
               {GANTT_MONTHS.map((_, i) => (
-                <div key={i} style={{ borderLeft: i > 0 ? "1px solid #1E1E1E" : "none" }} />
+                <div key={i} style={{ borderLeft: i > 0 ? `1px solid ${T.gray200}` : "none" }} />
               ))}
             </div>
             {/* Ghost track */}
@@ -703,21 +703,21 @@ const Timeline = () => (
       ))}
 
       {/* Bottom rule */}
-      <div style={{ height: 1, background: "#2A2A2A" }} />
+      <div style={{ height: 1, background: T.gray200 }} />
     </div>
 
     {/* ── AI Insights strip ── */}
     <div style={{ marginTop: 32, display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "#444", textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>AI · Smart Skill Mapping</div>
+      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray400, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>AI · Smart Skill Mapping</div>
       {[
         { insight: "OpenToWork (n8n + Claude API + PostgreSQL) directly matches AI Engineer & ML Engineer roles", impact: "High", project: "OpenToWork" },
         { insight: "FinsenseAI demonstrates Claude API + AWS in production — strong signal for fintech AI roles", impact: "High", project: "FinsenseAI" },
         { insight: "inspo-drop Chrome Extension shows shipping real TypeScript products — closes 4 job gaps", impact: "Medium", project: "inspo-drop" },
       ].map((ins, i) => (
-        <div key={i} style={{ display: "flex", gap: 12, padding: "12px 16px", background: "#191919", borderRadius: 10, border: "1px solid #222", alignItems: "flex-start" }}>
+        <div key={i} style={{ display: "flex", gap: 12, padding: "12px 16px", background: T.gray100, borderRadius: 10, border: `1px solid ${T.gray200}`, alignItems: "flex-start" }}>
           <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>⚡</span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, color: "#888", lineHeight: 1.6, fontFamily: "'Sora', sans-serif" }}>{ins.insight}</div>
+            <div style={{ fontSize: 12, color: T.gray600, lineHeight: 1.6, fontFamily: "'Sora', sans-serif" }}>{ins.insight}</div>
             <div style={{ marginTop: 5, display: "flex", gap: 10, alignItems: "center" }}>
               <span style={{ fontSize: 10, color: T.orange, fontFamily: "'DM Mono', monospace" }}>→ {ins.project}</span>
               <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: ins.impact === "High" ? T.green : T.amber }}>{ins.impact} Impact</span>
