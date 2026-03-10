@@ -62,10 +62,15 @@ const radarData = [
 ];
 
 const projects = [
-  { id: 1, name: "FinSense AI", skills: ["Python","PostgreSQL","Claude API","AWS"], pct: 70, status: "active", start: 0, end: 75 },
-  { id: 2, name: "RAG Chatbot", skills: ["Python","Vector DB","React"], pct: 35, status: "active", start: 30, end: 80 },
-  { id: 3, name: "Chrome Extension", skills: ["JavaScript","Chrome API"], pct: 50, status: "paused", start: 50, end: 90 },
-  { id: 4, name: "OpenToWork", skills: ["n8n","Claude API","React"], pct: 15, status: "active", start: 60, end: 100 },
+  { id: 1,  name: "OpenToWork",       skills: ["Python","n8n","Claude API","React","PostgreSQL"], pct: 20,  status: "active",    start: 72, end: 100 },
+  { id: 2,  name: "FinsenseAI",       skills: ["Python","Claude API","PostgreSQL","AWS"],          pct: 65,  status: "active",    start: 42, end: 88  },
+  { id: 3,  name: "image-studio-CC",  skills: ["JavaScript","HTML","Claude Code"],                 pct: 85,  status: "active",    start: 58, end: 95  },
+  { id: 4,  name: "autoTinglishSub",  skills: ["Python","Whisper","FFmpeg"],                       pct: 80,  status: "active",    start: 55, end: 90  },
+  { id: 5,  name: "inspo-drop",       skills: ["TypeScript","Chrome Extension","CSS"],             pct: 60,  status: "paused",    start: 28, end: 72  },
+  { id: 6,  name: "knowVasu",         skills: ["TypeScript","CSS"],                                pct: 40,  status: "paused",    start: 18, end: 55  },
+  { id: 7,  name: "cvas-ChatBot",     skills: ["Python"],                                          pct: 55,  status: "paused",    start: 12, end: 48  },
+  { id: 8,  name: "beyondLabel",      skills: ["Flutter","Dart","Swift"],                          pct: 30,  status: "paused",    start: 5,  end: 38  },
+  { id: 9,  name: "RaspNet Protocol", skills: ["C","HTML","Raspberry Pi"],                         pct: 100, status: "completed", start: 0,  end: 25  },
 ];
 
 const interviewPrep = [
@@ -641,7 +646,10 @@ const Timeline = () => (
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif" }}>{p.name}</span>
-                <Tag color={p.status === "active" ? T.green : T.amber} bg={p.status === "active" ? T.greenLight : T.amberLight}>{p.status}</Tag>
+                <Tag
+                  color={p.status === "active" ? T.green : p.status === "completed" ? T.gray400 : T.amber}
+                  bg={p.status === "active" ? T.greenLight : p.status === "completed" ? T.gray100 : T.amberLight}
+                >{p.status}</Tag>
               </div>
               <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'DM Mono', monospace", color: T.orange }}>{p.pct}%</span>
             </div>
@@ -661,9 +669,9 @@ const Timeline = () => (
       <Label>AI Overlay — Smart Skill Mapping</Label>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {[
-          { insight: "Adding Kubernetes to FinSense AI deployment closes 8 job gaps", impact: "High", project: "FinSense AI" },
-          { insight: "Integrating LangChain into RAG Chatbot covers 5 job listings", impact: "Medium", project: "RAG Chatbot" },
-          { insight: "OpenToWork demonstrates n8n + Claude API — 6 job matches", impact: "High", project: "OpenToWork" },
+          { insight: "OpenToWork pipeline (n8n + Claude API + PostgreSQL) directly matches AI Engineer & ML Engineer roles", impact: "High", project: "OpenToWork" },
+          { insight: "FinsenseAI showcases Claude API + AWS in production — strong signal for fintech AI roles", impact: "High", project: "FinsenseAI" },
+          { insight: "inspo-drop Chrome Extension demonstrates shipping real TypeScript products — closes 4 job gaps", impact: "Medium", project: "inspo-drop" },
         ].map((ins, i) => (
           <div key={i} style={{ display: "flex", gap: 14, padding: "14px 16px", background: T.gray100, borderRadius: 12, border: `1px solid ${T.gray200}`, alignItems: "flex-start" }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: T.orangeXLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>⚡</div>
