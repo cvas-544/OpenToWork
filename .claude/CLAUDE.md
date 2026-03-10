@@ -255,10 +255,10 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 - job_listings table truncated — fresh start for tomorrow's run
 
 ### Session 1 — Next Up 🔜
-- Add `APIFY_TOKEN` to `~/n8n/.env` on EC2
 - EC2 rebuild: `cd ~/OpenToWork && git pull && cd ~/n8n && docker compose build --no-cache && docker compose up -d --force-recreate`
-- #25: Verify Apify LinkedIn returns results (check n8n Executions at 8am)
-- #5: End-to-end pipeline test (Agent 1 → Agent 2 via n8n)
+- Wait for 8am auto-run → check n8n Executions tab
+- Verify Apify LinkedIn returns jobs (#25) → close if confirmed
+- Verify Agent 1 → Agent 2 pipeline end-to-end (#5) → close if confirmed
 
 ### Session 2 — Pending
 - #6–10: Agents 3-6 + n8n wiring
@@ -272,4 +272,4 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## Last Updated
-2026-03-10 — Session 1 extended. SerpAPI replaced with Apify `curious_coder/linkedin-jobs-scraper` (apify_client SDK). LinkedIn filters from manual search URL (Associate+Mid-Senior, full-time, Germany, last 24h). Keywords trimmed to 3. n8n cron triggers activated (8am/noon/8pm). job_listings truncated. Latest commits: bf5ffdf→b1253bf. EC2 rebuild + APIFY_TOKEN in .env pending. Next: EC2 rebuild → 8am auto-run → #5 e2e test.
+2026-03-10 — n8n workflow published: Schedule Trigger (8am/noon/8pm) → Agent 1 → Agent 2 chain live. APIFY_TOKEN added to EC2 .env. EC2 rebuild still pending. job_listings truncated (fresh start). Next session: EC2 rebuild → verify 8am auto-run → close #25 + #5.
