@@ -180,11 +180,11 @@ def get_radar():
     user_skills = set(row["skills"] if row else [])
     ai_user_skills = {s for s in user_skills if _is_ai_skill(s)}
 
-    # Use skill_gaps table (same source as bar chart) — populated by Agent 3
+    # Use skill_gaps table — all skills with frequency > 3
     cur.execute("""
         SELECT skill, frequency FROM skill_gaps
+        WHERE frequency > 3
         ORDER BY week_start DESC, frequency DESC
-        LIMIT 8
     """)
     top = [(r["skill"], r["frequency"]) for r in cur.fetchall()]
 
@@ -198,7 +198,7 @@ def get_radar():
                 freq[skill] += 1
             for skill in (r["missing_skills"] or []):
                 freq[skill] += 1
-        top = freq.most_common(8)
+        top = [(s, c) for s, c in freq.most_common() if c > 3]
 
     cur.close()
     conn.close()
