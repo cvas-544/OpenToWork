@@ -887,7 +887,7 @@ const SkillGaps = () => {
 
         <div style={{ resize: "both", overflow: "hidden", minWidth: 340, minHeight: 456, width: "calc(40% - 7px)", height: 456, boxSizing: "border-box" }}>
         <Card style={{ padding: "24px 28px", width: "100%", height: "100%", boxSizing: "border-box" }}>
-          <Label>Your Skills vs Market Demand {liveRadar && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
+          <Label>Skills Radar {liveRadar && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
           <div style={{ height: "calc(100% - 36px)" }}>
           <ResponsiveContainer width="100%" height="100%">
             <RadarChart data={liveRadar || radarData} outerRadius="72%">
