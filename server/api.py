@@ -180,25 +180,20 @@ def get_radar():
     user_skills = set(row["skills"] if row else [])
     ai_user_skills = {s for s in user_skills if _is_ai_skill(s)}
 
-    # Use skill_gaps table — all skills with frequency > 3
+    # Use same source as All Skills Today — unnest matched+missing from job_listings
     cur.execute("""
-        SELECT skill, frequency FROM skill_gaps
-        WHERE frequency >= 3
-        ORDER BY week_start DESC, frequency DESC
+        SELECT skill, COUNT(*) AS frequency
+        FROM (
+            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 60
+            UNION ALL
+            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 60
+        ) s
+        WHERE skill IS NOT NULL AND trim(skill) != ''
+        GROUP BY skill
+        HAVING COUNT(*) >= 3
+        ORDER BY frequency DESC
     """)
     top = [(r["skill"], r["frequency"]) for r in cur.fetchall()]
-
-    # Fallback: compute directly from job_listings if Agent 3 hasn't run yet
-    if not top:
-        cur.execute("SELECT matched_skills, missing_skills FROM job_listings WHERE score >= 60")
-        rows = cur.fetchall()
-        freq: Counter = Counter()
-        for r in rows:
-            for skill in (r["matched_skills"] or []):
-                freq[skill] += 1
-            for skill in (r["missing_skills"] or []):
-                freq[skill] += 1
-        top = [(s, c) for s, c in freq.most_common() if c >= 3]
 
     cur.close()
     conn.close()
