@@ -856,7 +856,7 @@ const SkillGaps = () => {
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
         <div style={{ resize: "both", overflow: "hidden", minWidth: 400, minHeight: 456, width: "calc(60% - 7px)", height: 456, boxSizing: "border-box" }}>
         <Card style={{ padding: "24px 28px", width: "100%", height: "100%", boxSizing: "border-box" }}>
-          <Label>All Skills Today {dailySkills && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
+          <Label>All Skills {dailySkills && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
           <div style={{ height: "calc(100% - 36px)", overflowY: "auto", paddingRight: 4 }}>
             {(dailySkills || []).length === 0 ? (
               <div style={{ color: T.gray400, fontSize: 12, fontFamily: "'DM Mono', monospace", paddingTop: 16 }}>No data yet — waiting for today's pipeline run.</div>
