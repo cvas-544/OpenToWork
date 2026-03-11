@@ -174,42 +174,41 @@ def get_radar():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # User AI skills
-    cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
-    row = cur.fetchone()
-    user_skills = set(row["skills"] if row else [])
-
-    # Use same source as All Skills Today — unnest matched+missing from job_listings
+    # Use matched_skills to know what the user HAS — Agent 2 already determined this
     cur.execute("""
-        SELECT skill, COUNT(*) AS frequency
+        SELECT skill, COUNT(*) AS frequency,
+               MAX(CASE WHEN source = 'matched' THEN 1 ELSE 0 END) AS user_has
         FROM (
-            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 80
+            SELECT unnest(matched_skills) AS skill, 'matched' AS source
+            FROM job_listings WHERE score >= 80
             UNION ALL
-            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 80
+            SELECT unnest(missing_skills) AS skill, 'missing' AS source
+            FROM job_listings WHERE score >= 80
         ) s
         WHERE skill IS NOT NULL AND trim(skill) != ''
         GROUP BY skill
         HAVING COUNT(*) >= 3
         ORDER BY frequency DESC
     """)
-    top = [(r["skill"], r["frequency"]) for r in cur.fetchall()]
+    rows = cur.fetchall()
 
     cur.close()
     conn.close()
 
-    if not top:
+    if not rows:
         return {"radar": []}
 
-    max_freq = top[0][1]
+    max_freq = rows[0]["frequency"]
     radar = []
-    for skill, count in top:
+    for r in rows:
+        skill = r["skill"]
         label = skill.title()
         if len(label) > 14:
             label = label[:12] + "…"
         radar.append({
             "subject": label,
-            "you": 85 if _user_has_skill(skill, user_skills) else 15,
-            "market": round((count / max_freq) * 100),
+            "you": 85 if r["user_has"] else 15,
+            "market": round((r["frequency"] / max_freq) * 100),
         })
     return {"radar": radar}
 
