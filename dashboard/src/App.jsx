@@ -901,7 +901,7 @@ const SkillGaps = () => {
                 angle={90}
                 domain={[0, 100]}
                 tick={{ fill: T.gray400, fontSize: 9, fontFamily: "DM Mono" }}
-                tickCount={4}
+                ticks={[0, 35, 65, 100]}
                 axisLine={false}
               />
               <Radar
