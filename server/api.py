@@ -174,26 +174,35 @@ def get_radar():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+    # User AI skills
     cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
     row = cur.fetchone()
     user_skills = set(row["skills"] if row else [])
     ai_user_skills = {s for s in user_skills if _is_ai_skill(s)}
 
-    cur.execute("SELECT matched_skills, missing_skills FROM job_listings WHERE score >= 60")
-    rows = cur.fetchall()
+    # Use skill_gaps table (same source as bar chart) — populated by Agent 3
+    cur.execute("""
+        SELECT skill, frequency FROM skill_gaps
+        ORDER BY week_start DESC, frequency DESC
+        LIMIT 8
+    """)
+    top = [(r["skill"], r["frequency"]) for r in cur.fetchall()]
+
+    # Fallback: compute directly from job_listings if Agent 3 hasn't run yet
+    if not top:
+        cur.execute("SELECT matched_skills, missing_skills FROM job_listings WHERE score >= 60")
+        rows = cur.fetchall()
+        freq: Counter = Counter()
+        for r in rows:
+            for skill in (r["matched_skills"] or []):
+                freq[skill] += 1
+            for skill in (r["missing_skills"] or []):
+                freq[skill] += 1
+        top = freq.most_common(8)
+
     cur.close()
     conn.close()
 
-    freq: Counter = Counter()
-    for r in rows:
-        for skill in (r["matched_skills"] or []):
-            if _is_ai_skill(skill):
-                freq[skill] += 1
-        for skill in (r["missing_skills"] or []):
-            if _is_ai_skill(skill):
-                freq[skill] += 1
-
-    top = freq.most_common(8)
     if not top:
         return {"radar": []}
 
