@@ -183,7 +183,7 @@ def get_radar():
     # Use skill_gaps table — all skills with frequency > 3
     cur.execute("""
         SELECT skill, frequency FROM skill_gaps
-        WHERE frequency > 3
+        WHERE frequency >= 3
         ORDER BY week_start DESC, frequency DESC
     """)
     top = [(r["skill"], r["frequency"]) for r in cur.fetchall()]
@@ -198,7 +198,7 @@ def get_radar():
                 freq[skill] += 1
             for skill in (r["missing_skills"] or []):
                 freq[skill] += 1
-        top = [(s, c) for s, c in freq.most_common() if c > 3]
+        top = [(s, c) for s, c in freq.most_common() if c >= 3]
 
     cur.close()
     conn.close()
