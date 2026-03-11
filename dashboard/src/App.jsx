@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
-  PolarGrid, PolarAngleAxis, LineChart, Line,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
+  PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
+  XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell
 } from "recharts";
 
 // ─── Data Context ─────────────────────────────────────────────────────────────
@@ -31,6 +31,8 @@ const T = {
   amberLight: "#FEF3C7",
   red: "#DC2626",
   redLight: "#FEF2F2",
+  silverMist: "#E4E4E4",
+  midnightShadow: "#050505",
 };
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -126,8 +128,9 @@ const navItems = [
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const scoreColor = (s) => s >= 80 ? T.green : s >= 60 ? T.amber : T.red;
-const scoreBg = (s) => s >= 80 ? T.greenLight : s >= 60 ? T.amberLight : T.redLight;
+const scoreColor = (s) => s >= 80 ? T.orange : s >= 60 ? "#6B6B6B" : "#9A9A9A";
+const scoreBg = (s) => s >= 80 ? T.orangeXLight : s >= 60 ? "#EFEFEF" : "#F4F4F4";
+const scoreTextColor = (s) => s >= 80 ? "#fff" : "#fff";
 const scoreLabel = (s) => s >= 80 ? "Strong" : s >= 60 ? "Good" : "Weak";
 const statusStyle = {
   new: { bg: T.gray200, color: T.gray600 },
@@ -618,21 +621,26 @@ const getCityLatLng = (location) => {
   return null;
 };
 
-const makeCityIcon = (count) => L.divIcon({
-  className: "",
-  html: `<div style="
-    width:48px;height:48px;border-radius:50%;
-    background:#E8621A;color:#fff;
-    display:flex;align-items:center;justify-content:center;
-    font-family:'Bebas Neue',Anton,sans-serif;font-size:18px;letter-spacing:0.5px;
-    border:3px solid #fff;
-    box-shadow:0 4px 20px rgba(232,98,26,0.4);
-    cursor:pointer;
-  ">${count}</div>`,
-  iconSize: [48, 48],
-  iconAnchor: [24, 24],
-  popupAnchor: [0, -28],
-});
+const makeCityIcon = (count) => {
+  const hot = count >= 50;
+  const bg = hot ? "#E8621A" : "#050505";
+  const shadow = hot ? "rgba(232,98,26,0.4)" : "rgba(5,5,5,0.25)";
+  return L.divIcon({
+    className: "",
+    html: `<div style="
+      width:48px;height:48px;border-radius:50%;
+      background:${bg};color:#fff;
+      display:flex;align-items:center;justify-content:center;
+      font-family:'Bebas Neue',Anton,sans-serif;font-size:18px;letter-spacing:0.5px;
+      border:3px solid #fff;
+      box-shadow:0 4px 20px ${shadow};
+      cursor:pointer;
+    ">${count}</div>`,
+    iconSize: [48, 48],
+    iconAnchor: [24, 24],
+    popupAnchor: [0, -28],
+  });
+};
 
 const FlyTo = ({ pos }) => { const map = useMap(); useEffect(() => { if (pos) map.flyTo(pos, 10, { duration: 1.2 }); }, [pos, map]); return null; };
 
@@ -717,9 +725,9 @@ const MapView = () => {
               >
                 <div style={{
                   width: 38, height: 38, borderRadius: "50%", flexShrink: 0,
-                  background: col, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: scoreColor(j.score), display: "flex", alignItems: "center", justifyContent: "center",
                   fontFamily: "'Bebas Neue',Anton,sans-serif", fontSize: 13, color: "#fff",
-                  boxShadow: `0 2px 8px ${col}55`,
+                  boxShadow: `0 2px 8px ${scoreColor(j.score)}55`,
                 }}>
                   {j.score || "—"}
                 </div>
@@ -780,7 +788,7 @@ const MapView = () => {
                       <div key={j.id} style={{ padding: "8px 10px", background: T.gray100, borderRadius: 10, border: `1px solid ${T.gray200}` }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: T.black }}>{j.title}</div>
-                          <div style={{ fontFamily: "'Bebas Neue',Anton,sans-serif", fontSize: 16, color: scoreColor(j.score), lineHeight: 1 }}>{j.score}</div>
+                          <div style={{ fontFamily: "'Bebas Neue',Anton,sans-serif", fontSize: 16, lineHeight: 1, padding: "2px 6px", borderRadius: 6, background: scoreColor(j.score), color: "#fff" }}>{j.score}</div>
                         </div>
                         <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono',monospace", marginBottom: 6 }}>{j.company}</div>
                         <button onClick={() => j.url && window.open(j.url, "_blank")} style={{ padding: "4px 10px", borderRadius: 7, cursor: "pointer", background: T.orange, border: "none", color: "#fff", fontSize: 10, fontFamily: "'DM Mono',monospace" }}>↗ Apply</button>
@@ -821,13 +829,15 @@ const MapView = () => {
 // ─── Skill Gaps ───────────────────────────────────────────────────────────────
 const SkillGaps = () => {
   const [gaps, setGaps] = useState(null);
+  const [liveRadar, setLiveRadar] = useState(null);
 
   useEffect(() => {
     fetchGaps().then(data => { if (data?.length) setGaps(data); });
+    fetchRadar().then(data => { if (data?.length) setLiveRadar(data); });
   }, []);
 
   const barChartData = gaps
-    ? gaps.slice(0, 8).map(g => ({ skill: g.skill, count: g.frequency }))
+    ? gaps.slice(0, 8).map(g => ({ skill: g.skill.length > 18 ? g.skill.slice(0, 16) + "…" : g.skill, count: g.frequency }))
     : gapData;
 
   const actionCards = gaps
@@ -848,10 +858,10 @@ const SkillGaps = () => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <Card style={{ padding: "24px 28px" }}>
           <Label>Top Skill Gaps by Frequency {gaps && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={barChartData} layout="vertical">
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={barChartData} layout="vertical" margin={{ left: 0, right: 12 }}>
               <XAxis type="number" tick={{ fill: T.gray400, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
-              <YAxis dataKey="skill" type="category" tick={{ fill: T.gray600, fontSize: 11, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} width={80} />
+              <YAxis dataKey="skill" type="category" tick={{ fill: T.gray600, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} width={140} />
               <Tooltip contentStyle={{ background: "#fff", border: `1px solid ${T.gray200}`, borderRadius: 12, fontSize: 11, fontFamily: "DM Mono", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
               <Bar dataKey="count" radius={[0, 6, 6, 0]}>
                 {barChartData.map((_, i) => <Cell key={i} fill={i === 0 ? T.orange : `rgba(232,98,26,${0.85 - i * 0.12})`} />)}
@@ -861,13 +871,47 @@ const SkillGaps = () => {
         </Card>
 
         <Card style={{ padding: "24px 28px" }}>
-          <Label>Your Skills vs Market Demand</Label>
-          <ResponsiveContainer width="100%" height={200}>
-            <RadarChart data={radarData}>
-              <PolarGrid stroke={T.gray200} />
-              <PolarAngleAxis dataKey="subject" tick={{ fill: T.gray600, fontSize: 10, fontFamily: "DM Mono" }} />
-              <Radar name="You" dataKey="you" stroke={T.orange} fill={T.orange} fillOpacity={0.15} strokeWidth={2} />
-              <Radar name="Market" dataKey="market" stroke={T.gray400} fill={T.gray400} fillOpacity={0.06} strokeDasharray="4 2" />
+          <Label>Your Skills vs Market Demand {liveRadar && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
+          <ResponsiveContainer width="100%" height={300}>
+            <RadarChart data={liveRadar || radarData} outerRadius="72%">
+              <PolarGrid stroke={T.gray200} strokeDasharray="0" />
+              <PolarAngleAxis
+                dataKey="subject"
+                tick={{ fill: T.gray600, fontSize: 10, fontFamily: "DM Mono" }}
+                tickLine={false}
+              />
+              <PolarRadiusAxis
+                angle={90}
+                domain={[0, 100]}
+                tick={{ fill: T.gray400, fontSize: 9, fontFamily: "DM Mono" }}
+                tickCount={4}
+                axisLine={false}
+              />
+              <Radar
+                name="Your Skills"
+                dataKey="you"
+                stroke={T.orange}
+                fill={T.orange}
+                fillOpacity={0.18}
+                strokeWidth={2}
+                dot={{ r: 4, fill: T.orange, strokeWidth: 0 }}
+                activeDot={{ r: 5, fill: T.orange }}
+              />
+              <Radar
+                name="Market Demand"
+                dataKey="market"
+                stroke="#A0A0A0"
+                fill="#A0A0A0"
+                fillOpacity={0.22}
+                strokeWidth={2}
+                dot={{ r: 4, fill: "#A0A0A0", stroke: "#fff", strokeWidth: 1 }}
+              />
+              <Legend
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: 10, fontFamily: "DM Mono", paddingTop: 8 }}
+                formatter={(value) => <span style={{ color: T.gray600 }}>{value}</span>}
+              />
             </RadarChart>
           </ResponsiveContainer>
         </Card>

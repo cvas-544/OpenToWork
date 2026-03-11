@@ -7,6 +7,7 @@ import os
 import json
 import psycopg2
 import psycopg2.extras
+from collections import Counter
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -138,6 +139,77 @@ def update_skills(body: SkillsBody):
 
 
 # ── Dashboard Data Endpoints ──────────────────────────────────────────────────
+
+_AI_KEYWORDS = [
+    "python", "pytorch", "tensorflow", "keras", "scikit", "sklearn", "pandas",
+    "numpy", "opencv", "cuda", "langchain", "llm", "gpt", "claude", "openai",
+    "anthropic", "huggingface", "transformer", "bert", "llama", "mistral",
+    "gemini", "neural", "deep learning", "machine learning", "computer vision",
+    "nlp", "rag", "embedding", "vector", "fine-tun", "mlflow", "kubeflow",
+    "airflow", "mlops", "aiops", "prefect", "docker", "kubernetes", "k8s",
+    "aws", "gcp", "azure", "fastapi", "flask", "postgresql", "postgres", "sql",
+    "spark", "databricks", "snowflake", "dbt", "ray", "qdrant", "pinecone",
+    "chroma", "weaviate", "faiss", "multi-agent", "agentic", "agent",
+    "ci/cd", "n8n", "data engineer", "data science", "model", "inference",
+    "training", "pipeline",
+]
+
+def _is_ai_skill(skill: str) -> bool:
+    s = skill.lower()
+    return any(kw in s for kw in _AI_KEYWORDS)
+
+def _user_has_skill(market_skill: str, user_skills: set) -> bool:
+    ms = market_skill.lower()
+    for us in user_skills:
+        ul = us.lower()
+        if ul in ms or ms in ul:
+            return True
+        if set(ms.split()) & set(ul.split()):
+            return True
+    return False
+
+
+@app.get("/data/radar")
+def get_radar():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
+    row = cur.fetchone()
+    user_skills = set(row["skills"] if row else [])
+    ai_user_skills = {s for s in user_skills if _is_ai_skill(s)}
+
+    cur.execute("SELECT matched_skills, missing_skills FROM job_listings WHERE score >= 60")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    freq: Counter = Counter()
+    for r in rows:
+        for skill in (r["matched_skills"] or []):
+            if _is_ai_skill(skill):
+                freq[skill] += 1
+        for skill in (r["missing_skills"] or []):
+            if _is_ai_skill(skill):
+                freq[skill] += 1
+
+    top = freq.most_common(8)
+    if not top:
+        return {"radar": []}
+
+    max_freq = top[0][1]
+    radar = []
+    for skill, count in top:
+        label = skill.title()
+        if len(label) > 14:
+            label = label[:12] + "…"
+        radar.append({
+            "subject": label,
+            "you": 85 if _user_has_skill(skill, ai_user_skills) else 15,
+            "market": round((count / max_freq) * 100),
+        })
+    return {"radar": radar}
+
 
 @app.get("/data/jobs")
 def get_jobs(limit: int = 200, score_min: int = 0):

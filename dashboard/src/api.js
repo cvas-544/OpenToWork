@@ -34,6 +34,18 @@ export async function fetchProfile() {
   }
 }
 
+export async function fetchRadar() {
+  try {
+    const res = await fetch(`${API_URL}/data/radar`);
+    if (!res.ok) throw new Error("API error");
+    const data = await res.json();
+    return data.radar;
+  } catch (e) {
+    console.warn("[API] fetchRadar failed, using mock data:", e.message);
+    return null;
+  }
+}
+
 export async function fetchGaps() {
   try {
     const res = await fetch(`${API_URL}/data/gaps`);
