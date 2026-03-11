@@ -184,9 +184,9 @@ def get_radar():
     cur.execute("""
         SELECT skill, COUNT(*) AS frequency
         FROM (
-            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 60
+            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 60 AND scraped_at >= CURRENT_DATE
             UNION ALL
-            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 60
+            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 60 AND scraped_at >= CURRENT_DATE
         ) s
         WHERE skill IS NOT NULL AND trim(skill) != ''
         GROUP BY skill
