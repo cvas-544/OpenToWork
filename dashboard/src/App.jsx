@@ -853,10 +853,11 @@ const SkillGaps = () => {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Card style={{ padding: "24px 28px" }}>
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <div style={{ resize: "both", overflow: "hidden", minWidth: 240, minHeight: 280, width: "calc(50% - 7px)", height: 380, boxSizing: "border-box" }}>
+        <Card style={{ padding: "24px 28px", width: "100%", height: "100%", boxSizing: "border-box" }}>
           <Label>All Skills Today {dailySkills && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
-          <div style={{ height: 260, overflowY: "auto", paddingRight: 4 }}>
+          <div style={{ height: "calc(100% - 36px)", overflowY: "auto", paddingRight: 4 }}>
             {(dailySkills || []).length === 0 ? (
               <div style={{ color: T.gray400, fontSize: 12, fontFamily: "'DM Mono', monospace", paddingTop: 16 }}>No data yet — waiting for today's pipeline run.</div>
             ) : (
@@ -882,10 +883,13 @@ const SkillGaps = () => {
             )}
           </div>
         </Card>
+        </div>
 
-        <Card style={{ padding: "24px 28px" }}>
+        <div style={{ resize: "both", overflow: "hidden", minWidth: 240, minHeight: 280, width: "calc(50% - 7px)", height: 380, boxSizing: "border-box" }}>
+        <Card style={{ padding: "24px 28px", width: "100%", height: "100%", boxSizing: "border-box" }}>
           <Label>Your Skills vs Market Demand {liveRadar && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
-          <ResponsiveContainer width="100%" height={300}>
+          <div style={{ height: "calc(100% - 36px)" }}>
+          <ResponsiveContainer width="100%" height="100%">
             <RadarChart data={liveRadar || radarData} outerRadius="72%">
               <PolarGrid stroke={T.gray200} strokeDasharray="0" />
               <PolarAngleAxis
@@ -927,7 +931,9 @@ const SkillGaps = () => {
               />
             </RadarChart>
           </ResponsiveContainer>
+          </div>
         </Card>
+        </div>
       </div>
 
       <Card style={{ padding: "24px 28px" }}>
