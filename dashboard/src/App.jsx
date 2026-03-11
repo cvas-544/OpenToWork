@@ -909,19 +909,19 @@ const SkillGaps = () => {
                 dataKey="you"
                 stroke={T.orange}
                 fill={T.orange}
-                fillOpacity={0.18}
-                strokeWidth={2}
+                fillOpacity={0.45}
+                strokeWidth={2.5}
                 dot={{ r: 4, fill: T.orange, strokeWidth: 0 }}
                 activeDot={{ r: 5, fill: T.orange }}
               />
               <Radar
                 name="Market Demand"
                 dataKey="market"
-                stroke="#A0A0A0"
-                fill="#A0A0A0"
-                fillOpacity={0.22}
+                stroke="#888888"
+                fill="#888888"
+                fillOpacity={0.3}
                 strokeWidth={2}
-                dot={{ r: 4, fill: "#A0A0A0", stroke: "#fff", strokeWidth: 1 }}
+                dot={{ r: 4, fill: "#888888", stroke: "#fff", strokeWidth: 1 }}
               />
               <Legend
                 iconType="circle"
