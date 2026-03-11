@@ -174,16 +174,28 @@ def get_radar():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # Use matched_skills to know what the user HAS — Agent 2 already determined this
+    # 1. Skills the user HAS — from matched_skills on high-score jobs (Agent 2 output)
     cur.execute("""
-        SELECT skill, COUNT(*) AS frequency,
-               MAX(CASE WHEN source = 'matched' THEN 1 ELSE 0 END) AS user_has
+        SELECT DISTINCT lower(unnest(matched_skills)) AS skill
+        FROM job_listings WHERE score >= 80 AND matched_skills IS NOT NULL
+    """)
+    matched_set = {r["skill"] for r in cur.fetchall() if r["skill"]}
+
+    # 2. Also pull user_profile skills as fallback
+    cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
+    row = cur.fetchone()
+    profile_set = {s.lower() for s in (row["skills"] if row else [])}
+
+    # Combined: user has a skill if it appears in matched OR profile
+    has_skills = matched_set | profile_set
+
+    # 3. Market skills — all skills from high-score jobs, count >= 3
+    cur.execute("""
+        SELECT skill, COUNT(*) AS frequency
         FROM (
-            SELECT unnest(matched_skills) AS skill, 'matched' AS source
-            FROM job_listings WHERE score >= 80
+            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 80
             UNION ALL
-            SELECT unnest(missing_skills) AS skill, 'missing' AS source
-            FROM job_listings WHERE score >= 80
+            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 80
         ) s
         WHERE skill IS NOT NULL AND trim(skill) != ''
         GROUP BY skill
@@ -202,12 +214,14 @@ def get_radar():
     radar = []
     for r in rows:
         skill = r["skill"]
+        sl = skill.lower()
+        user_has = any(sl in hs or hs in sl for hs in has_skills)
         label = skill.title()
         if len(label) > 14:
             label = label[:12] + "…"
         radar.append({
             "subject": label,
-            "you": 85 if r["user_has"] else 15,
+            "you": 85 if user_has else 15,
             "market": round((r["frequency"] / max_freq) * 100),
         })
     return {"radar": radar}
