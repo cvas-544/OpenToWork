@@ -178,7 +178,6 @@ def get_radar():
     cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
     row = cur.fetchone()
     user_skills = set(row["skills"] if row else [])
-    ai_user_skills = {s for s in user_skills if _is_ai_skill(s)}
 
     # Use same source as All Skills Today — unnest matched+missing from job_listings
     cur.execute("""
@@ -209,7 +208,7 @@ def get_radar():
             label = label[:12] + "…"
         radar.append({
             "subject": label,
-            "you": 85 if _user_has_skill(skill, ai_user_skills) else 15,
+            "you": 85 if _user_has_skill(skill, user_skills) else 15,
             "market": round((count / max_freq) * 100),
         })
     return {"radar": radar}
