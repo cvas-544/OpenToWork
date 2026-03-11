@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
@@ -830,10 +830,13 @@ const MapView = () => {
 const SkillGaps = () => {
   const [gaps, setGaps] = useState(null);
   const [liveRadar, setLiveRadar] = useState(null);
+  const [dailySkills, setDailySkills] = useState(null);
+  const [barView, setBarView] = useState("chart"); // "chart" | "skills"
 
   useEffect(() => {
     fetchGaps().then(data => { if (data?.length) setGaps(data); });
     fetchRadar().then(data => { if (data?.length) setLiveRadar(data); });
+    fetchDailySkills().then(data => { if (data?.length) setDailySkills(data); });
   }, []);
 
   const barChartData = gaps
@@ -857,17 +860,62 @@ const SkillGaps = () => {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <Card style={{ padding: "24px 28px" }}>
-          <Label>Top Skill Gaps by Frequency {gaps && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={barChartData} layout="vertical" margin={{ left: 0, right: 12 }}>
-              <XAxis type="number" tick={{ fill: T.gray400, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
-              <YAxis dataKey="skill" type="category" tick={{ fill: T.gray600, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} width={140} />
-              <Tooltip contentStyle={{ background: "#fff", border: `1px solid ${T.gray200}`, borderRadius: 12, fontSize: 11, fontFamily: "DM Mono", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
-              <Bar dataKey="count" radius={[0, 6, 6, 0]}>
-                {barChartData.map((_, i) => <Cell key={i} fill={i === 0 ? T.orange : `rgba(232,98,26,${0.85 - i * 0.12})`} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <Label style={{ marginBottom: 0 }}>
+              {barView === "chart" ? "Top Skill Gaps by Frequency" : "All Skills Today"}
+              {" "}{(gaps || dailySkills) && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}
+            </Label>
+            <div style={{ display: "flex", gap: 4 }}>
+              {[["chart", "Bar Chart"], ["skills", "All Skills"]].map(([v, label]) => (
+                <button key={v} onClick={() => setBarView(v)} style={{
+                  fontSize: 10, padding: "4px 12px", borderRadius: 99, cursor: "pointer",
+                  fontFamily: "'DM Mono', monospace", border: `1px solid ${barView === v ? T.orange : T.gray200}`,
+                  background: barView === v ? T.orangeXLight : T.gray100,
+                  color: barView === v ? T.orange : T.gray600,
+                }}>{label}</button>
+              ))}
+            </div>
+          </div>
+
+          {barView === "chart" ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={barChartData} layout="vertical" margin={{ left: 0, right: 12 }}>
+                <XAxis type="number" tick={{ fill: T.gray400, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
+                <YAxis dataKey="skill" type="category" tick={{ fill: T.gray600, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} width={140} />
+                <Tooltip contentStyle={{ background: "#fff", border: `1px solid ${T.gray200}`, borderRadius: 12, fontSize: 11, fontFamily: "DM Mono", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
+                <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                  {barChartData.map((_, i) => <Cell key={i} fill={i === 0 ? T.orange : `rgba(232,98,26,${0.85 - i * 0.12})`} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ height: 260, overflowY: "auto", paddingRight: 4 }}>
+              {(dailySkills || []).length === 0 ? (
+                <div style={{ color: T.gray400, fontSize: 12, fontFamily: "'DM Mono', monospace", paddingTop: 16 }}>No data yet — waiting for today's pipeline run.</div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignContent: "flex-start" }}>
+                  {(dailySkills || []).map((s, i) => {
+                    const max = dailySkills[0]?.count || 1;
+                    const intensity = s.count / max;
+                    const bg = intensity > 0.6 ? T.orange : intensity > 0.3 ? "#F5884A" : T.silverMist;
+                    const color = intensity > 0.3 ? "#fff" : T.gray600;
+                    return (
+                      <div key={i} style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "5px 10px", borderRadius: 99,
+                        background: bg, color,
+                        fontFamily: "'DM Mono', monospace", fontSize: 11,
+                        transition: "transform 0.15s",
+                      }}>
+                        <span>{s.skill}</span>
+                        <span style={{ fontSize: 9, opacity: 0.85, fontWeight: 700 }}>{s.count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         <Card style={{ padding: "24px 28px" }}>

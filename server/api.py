@@ -220,6 +220,27 @@ def get_radar():
     return {"radar": radar}
 
 
+@app.get("/data/skills-daily")
+def get_skills_daily():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT skill, COUNT(*) AS count
+        FROM (
+            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE scraped_at >= CURRENT_DATE
+            UNION ALL
+            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE scraped_at >= CURRENT_DATE
+        ) s
+        WHERE skill IS NOT NULL AND trim(skill) != ''
+        GROUP BY skill
+        ORDER BY count DESC
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return {"skills": rows}
+
+
 @app.get("/data/jobs")
 def get_jobs(limit: int = 200, score_min: int = 0):
     conn = get_db()

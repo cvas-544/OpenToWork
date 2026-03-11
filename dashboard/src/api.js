@@ -46,6 +46,18 @@ export async function fetchRadar() {
   }
 }
 
+export async function fetchDailySkills() {
+  try {
+    const res = await fetch(`${API_URL}/data/skills-daily`);
+    if (!res.ok) throw new Error("API error");
+    const data = await res.json();
+    return data.skills;
+  } catch (e) {
+    console.warn("[API] fetchDailySkills failed:", e.message);
+    return null;
+  }
+}
+
 export async function fetchGaps() {
   try {
     const res = await fetch(`${API_URL}/data/gaps`);
