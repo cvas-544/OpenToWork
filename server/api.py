@@ -201,7 +201,7 @@ def get_radar():
         GROUP BY skill
         HAVING COUNT(*) >= 3
         ORDER BY frequency DESC
-        LIMIT 12
+        LIMIT 15
     """)
     rows = cur.fetchall()
 
