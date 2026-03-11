@@ -92,8 +92,23 @@ def save_gaps(gap_analyses: list[dict]):
     conn.close()
 
 
-def run(jobs: list[dict]) -> list[dict]:
+def fetch_jobs_from_db() -> list[dict]:
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute("SELECT missing_skills FROM job_listings WHERE score >= 60")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [{"missing_skills": r[0] or []} for r in rows]
+
+
+def run(jobs: list[dict] = None) -> list[dict]:
+    if jobs is None:
+        jobs = fetch_jobs_from_db()
     print(f"[Agent 3] Analyzing skill gaps across {len(jobs)} scored jobs")
+    if not jobs:
+        print("[Agent 3] No scored jobs found — skipping")
+        return []
     top_gaps = aggregate_gaps(jobs)
     print(f"  Top gaps: {[g[0] for g in top_gaps[:5]]}")
 
@@ -104,13 +119,5 @@ def run(jobs: list[dict]) -> list[dict]:
 
 
 if __name__ == "__main__":
-    # Load today's scored jobs from DB for testing
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("SELECT missing_skills FROM job_listings WHERE score >= 60 AND DATE(scraped_at) = CURRENT_DATE")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    jobs = [{"missing_skills": r[0] or []} for r in rows]
-    result = run(jobs)
+    result = run()
     print(json.dumps(result, indent=2))

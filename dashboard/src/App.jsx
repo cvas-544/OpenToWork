@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, LineChart, Line,
@@ -35,12 +35,21 @@ const T = {
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 const jobsData = [
-  { id: 1, title: "AI Engineer", company: "Allianz", location: "Munich", score: 94, status: "new", remote: false, lat: 48.13, lng: 11.58, missing: ["Terraform"], matched: ["Python","Claude API","AWS"], date: "Today" },
+  { id: 1, title: "AI Engineer", company: "Allianz", location: "Munich", score: 94, status: "new", remote: false, lat: 48.13, lng: 11.58, missing: ["Terraform"], matched: ["Python","Claude API","AWS"], date: "Today", url: "https://www.linkedin.com" },
   { id: 2, title: "ML Ops Engineer", company: "MAN", location: "Munich", score: 87, status: "applied", remote: false, lat: 48.15, lng: 11.60, missing: ["Kubernetes"], matched: ["Docker","PostgreSQL","Python"], date: "Today" },
   { id: 3, title: "Python Developer", company: "BMW Group", location: "Munich", score: 81, status: "interview", remote: false, lat: 48.17, lng: 11.55, missing: ["FastAPI"], matched: ["Python","AWS","Git"], date: "Yesterday" },
   { id: 4, title: "Data Engineer", company: "Siemens", location: "Remote", score: 76, status: "new", remote: true, missing: ["Spark","Kafka"], matched: ["Python","PostgreSQL"], date: "Yesterday" },
   { id: 5, title: "AI Product Manager", company: "N26", location: "Berlin", score: 72, status: "rejected", remote: false, lat: 52.52, lng: 13.40, missing: ["Product Roadmap"], matched: ["AI","Claude API"], date: "Mar 6" },
-  { id: 6, title: "LLM Engineer", company: "HuggingFace", location: "Remote", score: 88, status: "new", remote: true, missing: ["LoRA","RLHF"], matched: ["Python","Transformers","Claude API"], date: "Today" },
+  { id: 6, title: "LLM Engineer", company: "HuggingFace", location: "Remote", score: 88, status: "new", remote: true, missing: ["LoRA","RLHF"], matched: ["Python","Transformers","Claude API"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 7, title: "Senior AI Engineer", company: "Zalando", location: "Berlin", score: 92, status: "new", remote: false, lat: 52.52, lng: 13.40, missing: ["MLflow"], matched: ["Python","Claude API","Docker"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 8, title: "ML Platform Engineer", company: "Celonis", location: "Munich", score: 91, status: "new", remote: false, lat: 48.13, lng: 11.58, missing: ["Spark"], matched: ["Python","AWS","PostgreSQL"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 9, title: "AI Research Engineer", company: "DeepMind", location: "Remote", score: 96, status: "new", remote: true, missing: [], matched: ["Python","Claude API","AWS","Docker"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 10, title: "LLM Product Engineer", company: "Mistral AI", location: "Remote", score: 93, status: "new", remote: true, missing: ["vLLM"], matched: ["Python","Transformers","FastAPI"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 11, title: "AI Infrastructure Lead", company: "Volkswagen", location: "Wolfsburg", score: 90, status: "new", remote: false, lat: 52.43, lng: 10.79, missing: ["Kubernetes"], matched: ["Python","AWS","PostgreSQL"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 12, title: "GenAI Engineer", company: "SAP", location: "Berlin", score: 95, status: "new", remote: false, lat: 52.52, lng: 13.40, missing: ["LangChain"], matched: ["Python","Claude API","FastAPI"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 13, title: "Applied AI Engineer", company: "Bosch", location: "Stuttgart", score: 91, status: "new", remote: false, lat: 48.78, lng: 9.18, missing: [], matched: ["Python","Docker","AWS","PostgreSQL"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 14, title: "AI Platform Engineer", company: "Spotify", location: "Berlin", score: 93, status: "new", remote: false, lat: 52.52, lng: 13.40, missing: ["Airflow"], matched: ["Python","Claude API","AWS"], date: "Today", url: "https://www.linkedin.com" },
+  { id: 15, title: "ML Engineer", company: "Delivery Hero", location: "Berlin", score: 91, status: "new", remote: false, lat: 52.52, lng: 13.40, missing: ["Ray"], matched: ["Python","Docker","PostgreSQL"], date: "Today", url: "https://www.linkedin.com" },
 ];
 
 const trendData = [
@@ -121,7 +130,7 @@ const scoreColor = (s) => s >= 80 ? T.green : s >= 60 ? T.amber : T.red;
 const scoreBg = (s) => s >= 80 ? T.greenLight : s >= 60 ? T.amberLight : T.redLight;
 const scoreLabel = (s) => s >= 80 ? "Strong" : s >= 60 ? "Good" : "Weak";
 const statusStyle = {
-  new: { bg: "#EEF2FF", color: "#4338CA" },
+  new: { bg: T.gray200, color: T.gray600 },
   applied: { bg: T.orangeXLight, color: T.orange },
   interview: { bg: T.amberLight, color: T.amber },
   rejected: { bg: T.redLight, color: T.red },
@@ -159,6 +168,12 @@ const Tag = ({ children, color, bg }) => (
 // ─── Overview ─────────────────────────────────────────────────────────────────
 const Overview = () => {
   const { jobs, trendData: trend, pipeline: pipe, stats } = useData();
+  const [carouselIdx, setCarouselIdx] = useState(0);
+  const CARD_W = 232; // 220px card + 12px gap
+  const VISIBLE = 6;
+  const topMatches = jobs.filter(j => j.score >= 85).sort((a, b) => b.score - a.score).slice(0, 10);
+  const maxIdx = Math.max(0, topMatches.length - VISIBLE);
+  const moveCarousel = (dir) => setCarouselIdx(i => Math.max(0, Math.min(maxIdx, i + dir)));
   return (
   <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
     {/* Hero stat row */}
@@ -243,35 +258,71 @@ const Overview = () => {
       </Card>
     </div>
 
-    {/* Top Matches */}
+    {/* Top Matches — transform carousel */}
     <Card style={{ padding: "24px 28px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <Label>Today's Top Matches</Label>
-        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.orange, cursor: "pointer" }}>View all →</span>
+        <div style={{ display: "flex", gap: 6 }}>
+          {[{ dir: -1, icon: "←" }, { dir: 1, icon: "→" }].map(({ dir, icon }) => (
+            <button key={dir} onClick={() => moveCarousel(dir)} style={{
+              width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.gray200}`,
+              background: T.white, cursor: "pointer", fontSize: 14, color: T.gray600,
+              display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s",
+              opacity: (dir === -1 && carouselIdx === 0) || (dir === 1 && carouselIdx === maxIdx) ? 0.3 : 1,
+            }}
+              onMouseEnter={e => { if (e.currentTarget.style.opacity !== "0.3") { e.currentTarget.style.background = T.orange; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = T.orange; }}}
+              onMouseLeave={e => { e.currentTarget.style.background = T.white; e.currentTarget.style.color = T.gray600; e.currentTarget.style.borderColor = T.gray200; }}
+            >{icon}</button>
+          ))}
+        </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-        {jobs.filter(j => j.score >= 80).slice(0, 3).map(j => (
-          <div key={j.id} style={{ padding: "16px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}`, cursor: "pointer", transition: "all 0.2s" }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = T.orange; e.currentTarget.style.background = T.orangeXLight; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = T.gray200; e.currentTarget.style.background = T.gray100; }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-              <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 40, lineHeight: 1, color: scoreColor(j.score), letterSpacing: "-0.01em" }}>{j.score}<span style={{ fontSize: 20 }}>%</span></div>
-              <Tag color={scoreColor(j.score)} bg={scoreBg(j.score)}>{scoreLabel(j.score)}</Tag>
+      <div style={{ overflow: "hidden" }}>
+        <div style={{
+          display: "flex", gap: 12,
+          transform: `translateX(-${carouselIdx * CARD_W}px)`,
+          transition: "transform 0.35s cubic-bezier(0.4,0,0.2,1)",
+        }}>
+          {topMatches.map(j => (
+            <div key={j.id}
+              onClick={() => j.url && window.open(j.url, "_blank")}
+              style={{ minWidth: 220, width: 220, flexShrink: 0, padding: "16px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}`, cursor: j.url ? "pointer" : "default", transition: "border-color 0.2s, background 0.2s" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.orange; e.currentTarget.style.background = T.orangeXLight; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.gray200; e.currentTarget.style.background = T.gray100; }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 40, lineHeight: 1, color: scoreColor(j.score), letterSpacing: "-0.01em" }}>{j.score}<span style={{ fontSize: 20 }}>%</span></div>
+                <Tag color={scoreColor(j.score)} bg={scoreBg(j.score)}>{scoreLabel(j.score)}</Tag>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.black, marginBottom: 2, fontFamily: "'Sora', sans-serif" }}>{j.title}</div>
+              <div style={{ fontSize: 11, color: T.gray400, marginBottom: 10, fontFamily: "'DM Mono', monospace" }}>{j.company} · {j.location}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {(j.matched || []).slice(0, 2).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
+                {(j.missing || []).map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
+              </div>
             </div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.black, marginBottom: 2, fontFamily: "'Sora', sans-serif" }}>{j.title}</div>
-            <div style={{ fontSize: 11, color: T.gray400, marginBottom: 10, fontFamily: "'DM Mono', monospace" }}>{j.company} · {j.location}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {(j.matched || []).slice(0, 2).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
-              {(j.missing || []).map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
-            </div>
-          </div>
-        ))}
+          ))}
+          {topMatches.length === 0 && (
+            <div style={{ color: T.gray400, fontSize: 13, fontFamily: "'DM Mono', monospace", padding: "20px 0" }}>No jobs scoring ≥90 today.</div>
+          )}
+        </div>
       </div>
     </Card>
   </div>
   );
 };
+
+// ─── Select style helper ──────────────────────────────────────────────────────
+const SEL_ARROW = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235A5A5A'/%3E%3C/svg%3E")`;
+const selStyle = (active = false) => ({
+  fontSize: 11, padding: "5px 22px 5px 12px", borderRadius: 99,
+  fontFamily: "'DM Mono', monospace", outline: "none", cursor: "pointer",
+  appearance: "none", WebkitAppearance: "none",
+  backgroundImage: SEL_ARROW, backgroundRepeat: "no-repeat",
+  backgroundPosition: "right 8px center", backgroundSize: "8px 5px",
+  backgroundColor: active ? T.orangeXLight : T.gray100,
+  border: `1px solid ${active ? T.orange : T.gray200}`,
+  color: T.black,
+});
 
 // ─── Jobs Board ───────────────────────────────────────────────────────────────
 const JobsBoard = () => {
@@ -281,6 +332,14 @@ const JobsBoard = () => {
   const [dateRange, setDateRange] = useState("all");
   const [scoreFilter, setScoreFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusMap, setStatusMap] = useState({});
+
+  const effectiveStatus = (j) => statusMap[j.id] ?? j.status ?? "new";
+  const setJobStatus = (jobId, status, e) => {
+    e.stopPropagation();
+    setStatusMap(prev => ({ ...prev, [jobId]: status }));
+  };
 
   const today = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
   const cutoff = (days) => { const d = new Date(); d.setDate(d.getDate() - days); return d; };
@@ -309,6 +368,7 @@ const JobsBoard = () => {
     else if (scoreFilter === "60") { if (!score || score < 60 || score >= 80) return false; }
     else if (scoreFilter === "scored") { if (!score) return false; }
     else if (scoreFilter === "unscored") { if (score) return false; }
+    if (statusFilter !== "all" && effectiveStatus(j) !== statusFilter) return false;
     return true;
   }).sort((a, b) => {
     const aD = new Date(a.date_posted || 0);
@@ -322,7 +382,7 @@ const JobsBoard = () => {
     return isNaN(d) ? str.slice(0, 10) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   };
 
-  const [detailWidth, setDetailWidth] = useState(() => Math.floor((window.innerWidth - 180) * 0.38));
+  const [detailWidth, setDetailWidth] = useState(() => Math.floor((window.innerWidth - 180) * 0.45));
   const isResizing = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
@@ -356,31 +416,11 @@ const JobsBoard = () => {
       <Card style={{ flex: 1, padding: "24px", overflow: "auto" }}>
         {/* Single filter row */}
         <div style={{ display: "flex", gap: 8, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
-          <select
-            value={locationFilter || "All locations"}
-            onChange={e => setLocationFilter(e.target.value === "All locations" ? "" : e.target.value)}
-            style={{
-              fontSize: 11, padding: "5px 12px", borderRadius: 99,
-              fontFamily: "'DM Mono', monospace", outline: "none",
-              border: `1px solid ${locationFilter && locationFilter !== "All locations" ? T.orange : T.gray200}`,
-              background: locationFilter && locationFilter !== "All locations" ? T.orangeXLight : T.gray100,
-              color: T.black, cursor: "pointer",
-            }}
-          >
+          <select value={locationFilter || "All locations"} onChange={e => setLocationFilter(e.target.value === "All locations" ? "" : e.target.value)} style={selStyle(!!locationFilter && locationFilter !== "All locations")}>
             {locationOptions.map(loc => <option key={loc} value={loc}>{loc}</option>)}
           </select>
           <Sep />
-          <select
-            value={dateRange}
-            onChange={e => setDateRange(e.target.value)}
-            style={{
-              fontSize: 11, padding: "5px 12px", borderRadius: 99,
-              fontFamily: "'DM Mono', monospace", outline: "none",
-              border: `1px solid ${dateRange !== "all" ? T.orange : T.gray200}`,
-              background: dateRange !== "all" ? T.orangeXLight : T.gray100,
-              color: T.black, cursor: "pointer",
-            }}
-          >
+          <select value={dateRange} onChange={e => setDateRange(e.target.value)} style={selStyle(dateRange !== "all")}>
             <option value="all">All time</option>
             <option value="today">Today</option>
             <option value="3">Last 3 days</option>
@@ -389,17 +429,7 @@ const JobsBoard = () => {
             <option value="10-30">10–30 days ago</option>
           </select>
           <Sep />
-          <select
-            value={scoreFilter}
-            onChange={e => setScoreFilter(e.target.value)}
-            style={{
-              fontSize: 11, padding: "5px 12px", borderRadius: 99,
-              fontFamily: "'DM Mono', monospace", outline: "none",
-              border: `1px solid ${scoreFilter !== "all" ? T.orange : T.gray200}`,
-              background: scoreFilter !== "all" ? T.orangeXLight : T.gray100,
-              color: T.black, cursor: "pointer",
-            }}
-          >
+          <select value={scoreFilter} onChange={e => setScoreFilter(e.target.value)} style={selStyle(scoreFilter !== "all")}>
             <option value="all">All scores</option>
             <option value="80">80+ Green</option>
             <option value="60">60–79 Yellow</option>
@@ -407,9 +437,19 @@ const JobsBoard = () => {
             <option value="unscored">Unscored</option>
           </select>
           <Sep />
-          <Pill label="Newest" active={sortOrder === "newest"} onClick={() => setSortOrder("newest")} />
-          <Pill label="Oldest" active={sortOrder === "oldest"} onClick={() => setSortOrder("oldest")} />
-          <span style={{ marginLeft: "auto", fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, flexShrink: 0 }}>{filtered.length} jobs</span>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={selStyle(statusFilter !== "all")}>
+            <option value="all">All statuses</option>
+            <option value="new">New</option>
+            <option value="applied">Applied</option>
+            <option value="interview">Interview</option>
+            <option value="rejected">Rejected</option>
+            <option value="offer">Offer</option>
+          </select>
+          <Sep />
+          <select value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={selStyle(false)}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -429,7 +469,27 @@ const JobsBoard = () => {
                 <div style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif" }}>{j.title}</div>
                 <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>{j.company} · {j.location}</div>
               </div>
-              <Tag color={statusStyle[j.status]?.color} bg={statusStyle[j.status]?.bg}>{j.status}</Tag>
+              <select
+                value={effectiveStatus(j)}
+                onClick={e => e.stopPropagation()}
+                onChange={e => setJobStatus(j.id, e.target.value, e)}
+                style={{
+                  fontSize: 10, padding: "4px 20px 4px 8px", borderRadius: 99,
+                  fontFamily: "'DM Mono', monospace", outline: "none", cursor: "pointer", flexShrink: 0,
+                  appearance: "none", WebkitAppearance: "none",
+                  backgroundImage: SEL_ARROW, backgroundRepeat: "no-repeat",
+                  backgroundPosition: "right 7px center", backgroundSize: "7px 4px",
+                  border: `1px solid ${statusStyle[effectiveStatus(j)]?.color ?? T.gray200}`,
+                  backgroundColor: statusStyle[effectiveStatus(j)]?.bg ?? T.gray100,
+                  color: statusStyle[effectiveStatus(j)]?.color ?? T.gray600,
+                }}
+              >
+                <option value="new">New</option>
+                <option value="applied">Applied</option>
+                <option value="interview">Interview</option>
+                <option value="rejected">Rejected</option>
+                <option value="offer">Offer</option>
+              </select>
               <Tag color={j.source === "linkedin" ? "#0A66C2" : "#2E6B3E"} bg={j.source === "linkedin" ? "#E8F0F9" : "#E8F4EC"}>{j.source === "linkedin" ? "LinkedIn" : "Agentur"}</Tag>
               <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", width: 60, textAlign: "right" }}>{fmtDate(j.date_posted)}</div>
             </div>
@@ -759,58 +819,78 @@ const MapView = () => {
 };
 
 // ─── Skill Gaps ───────────────────────────────────────────────────────────────
-const SkillGaps = () => (
-  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-      <Card style={{ padding: "24px 28px" }}>
-        <Label>Top Skill Gaps by Frequency</Label>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={gapData} layout="vertical">
-            <XAxis type="number" tick={{ fill: T.gray400, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
-            <YAxis dataKey="skill" type="category" tick={{ fill: T.gray600, fontSize: 11, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} width={80} />
-            <Tooltip contentStyle={{ background: "#fff", border: `1px solid ${T.gray200}`, borderRadius: 12, fontSize: 11, fontFamily: "DM Mono", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
-            <Bar dataKey="count" radius={[0, 6, 6, 0]}>
-              {gapData.map((_, i) => <Cell key={i} fill={i === 0 ? T.orange : `rgba(232,98,26,${0.85 - i * 0.12})`} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
+const SkillGaps = () => {
+  const [gaps, setGaps] = useState(null);
+
+  useEffect(() => {
+    fetchGaps().then(data => { if (data?.length) setGaps(data); });
+  }, []);
+
+  const barChartData = gaps
+    ? gaps.slice(0, 8).map(g => ({ skill: g.skill, count: g.frequency }))
+    : gapData;
+
+  const actionCards = gaps
+    ? gaps.slice(0, 6).map(g => ({
+        skill: g.skill,
+        count: g.frequency,
+        action: g.closure_path || "Research and practice this skill",
+        project: g.project_mapping || null,
+      }))
+    : [
+        { skill: "Kubernetes", count: 8, action: "Add K8s deployment to FinSense AI", project: "FinSense AI" },
+        { skill: "Terraform", count: 6, action: "Terraform course on Udemy", project: null },
+        { skill: "LangChain", count: 5, action: "Integrate into RAG Chatbot project", project: "RAG Chatbot" },
+      ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <Card style={{ padding: "24px 28px" }}>
+          <Label>Top Skill Gaps by Frequency {gaps && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={barChartData} layout="vertical">
+              <XAxis type="number" tick={{ fill: T.gray400, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
+              <YAxis dataKey="skill" type="category" tick={{ fill: T.gray600, fontSize: 11, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} width={80} />
+              <Tooltip contentStyle={{ background: "#fff", border: `1px solid ${T.gray200}`, borderRadius: 12, fontSize: 11, fontFamily: "DM Mono", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
+              <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                {barChartData.map((_, i) => <Cell key={i} fill={i === 0 ? T.orange : `rgba(232,98,26,${0.85 - i * 0.12})`} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+
+        <Card style={{ padding: "24px 28px" }}>
+          <Label>Your Skills vs Market Demand</Label>
+          <ResponsiveContainer width="100%" height={200}>
+            <RadarChart data={radarData}>
+              <PolarGrid stroke={T.gray200} />
+              <PolarAngleAxis dataKey="subject" tick={{ fill: T.gray600, fontSize: 10, fontFamily: "DM Mono" }} />
+              <Radar name="You" dataKey="you" stroke={T.orange} fill={T.orange} fillOpacity={0.15} strokeWidth={2} />
+              <Radar name="Market" dataKey="market" stroke={T.gray400} fill={T.gray400} fillOpacity={0.06} strokeDasharray="4 2" />
+            </RadarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
 
       <Card style={{ padding: "24px 28px" }}>
-        <Label>Your Skills vs Market Demand</Label>
-        <ResponsiveContainer width="100%" height={200}>
-          <RadarChart data={radarData}>
-            <PolarGrid stroke={T.gray200} />
-            <PolarAngleAxis dataKey="subject" tick={{ fill: T.gray600, fontSize: 10, fontFamily: "DM Mono" }} />
-            <Radar name="You" dataKey="you" stroke={T.orange} fill={T.orange} fillOpacity={0.15} strokeWidth={2} />
-            <Radar name="Market" dataKey="market" stroke={T.gray400} fill={T.gray400} fillOpacity={0.06} strokeDasharray="4 2" />
-          </RadarChart>
-        </ResponsiveContainer>
+        <Label>Gap → Action Suggestions {gaps && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          {actionCards.map(g => (
+            <div key={g.skill} style={{ padding: "18px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 28, lineHeight: 1, color: T.black }}>{g.skill}</div>
+                <Tag color={T.red} bg={T.redLight}>{g.count} jobs</Tag>
+              </div>
+              <div style={{ fontSize: 12, color: T.gray600, marginBottom: 10, lineHeight: 1.6, fontFamily: "'Sora', sans-serif" }}>{g.action}</div>
+              {g.project && <div style={{ fontSize: 10, color: T.orange, fontFamily: "'DM Mono', monospace" }}>→ {g.project}</div>}
+            </div>
+          ))}
+        </div>
       </Card>
     </div>
-
-    <Card style={{ padding: "24px 28px" }}>
-      <Label>Gap → Action Suggestions</Label>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-        {[
-          { skill: "Kubernetes", count: 8, action: "Add K8s deployment to FinSense AI", project: "FinSense AI", effort: "~1 week" },
-          { skill: "Terraform", count: 6, action: "Terraform course on Udemy", project: null, effort: "~4 hrs" },
-          { skill: "LangChain", count: 5, action: "Integrate into RAG Chatbot project", project: "RAG Chatbot", effort: "~3 days" },
-        ].map(g => (
-          <div key={g.skill} style={{ padding: "18px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 28, lineHeight: 1, color: T.black }}>{g.skill}</div>
-              <Tag color={T.red} bg={T.redLight}>{g.count} jobs</Tag>
-            </div>
-            <div style={{ fontSize: 12, color: T.gray600, marginBottom: 10, lineHeight: 1.6, fontFamily: "'Sora', sans-serif" }}>{g.action}</div>
-            {g.project && <div style={{ fontSize: 10, color: T.orange, fontFamily: "'DM Mono', monospace" }}>→ {g.project}</div>}
-            <div style={{ fontSize: 10, color: T.gray400, marginTop: 4, fontFamily: "'DM Mono', monospace" }}>{g.effort}</div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  </div>
-);
+  );
+};
 
 // ─── Timeline ─────────────────────────────────────────────────────────────────
 const GANTT_MONTHS = ["Jan '25","Mar","May","Jul","Sep","Nov","Jan '26","Feb","Mar"];
@@ -1246,7 +1326,12 @@ export default function App() {
   const [livePipeline, setLivePipeline] = useState(pipeline);
 
   useEffect(() => {
-    fetchJobs().then(data => { if (data) setJobs(data); });
+    fetchJobs().then(data => {
+      if (data?.length) {
+        const liveIds = new Set(data.map(j => j.id));
+        setJobs([...data, ...jobsData.filter(j => !liveIds.has(j.id))]);
+      }
+    });
     fetchStats().then(data => {
       if (data) {
         setLiveStats({ today: data.today, total: data.total, applied: data.applied, interviews: data.interviews, last_run: data.last_run });

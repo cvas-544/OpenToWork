@@ -167,6 +167,24 @@ def get_jobs(limit: int = 200, score_min: int = 0):
     return {"jobs": jobs}
 
 
+@app.get("/data/gaps")
+def get_gaps():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT skill, frequency, week_start, closure_path, project_mapping
+        FROM skill_gaps
+        ORDER BY week_start DESC, frequency DESC
+        LIMIT 50
+    """)
+    gaps = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    for g in gaps:
+        g["week_start"] = str(g["week_start"])
+    return {"gaps": gaps}
+
+
 @app.get("/data/stats")
 def get_stats():
     conn = get_db()

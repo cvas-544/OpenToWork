@@ -34,6 +34,18 @@ export async function fetchProfile() {
   }
 }
 
+export async function fetchGaps() {
+  try {
+    const res = await fetch(`${API_URL}/data/gaps`);
+    if (!res.ok) throw new Error("API error");
+    const data = await res.json();
+    return data.gaps;
+  } catch (e) {
+    console.warn("[API] fetchGaps failed, using mock data:", e.message);
+    return null;
+  }
+}
+
 export async function updateSkills(skills) {
   try {
     const res = await fetch(`${API_URL}/profile/skills`, {
