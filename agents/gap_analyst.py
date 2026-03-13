@@ -19,10 +19,11 @@ client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # Projects to map gaps against
 YOUR_PROJECTS = [
-    "FinsenseAI — AI finance dashboard (Python, React, Claude API)",
-    "RAG Chatbot — document Q&A system",
-    "Chrome Extension — browser automation",
-    "OpenToWork / JobHunt AI — multi-agent job intelligence system (n8n, Claude, PostgreSQL)",
+    "OpenToWork / JobHunt AI — multi-agent job intelligence system (n8n, FastAPI, Claude API, PostgreSQL, React dashboard)",
+    "FinsenseAI — AI-powered finance dashboard (Python, React, Claude API, AWS EC2, RDS)",
+    "autoTinglishSub — fine-tuned Whisper model for Telugu/English subtitles (PyTorch, HuggingFace, CTranslate2)",
+    "RAG Chatbot — document Q&A system (LangChain, vector embeddings, Python)",
+    "Chrome Extension — browser automation tool (JavaScript)",
 ]
 
 
@@ -67,8 +68,8 @@ Return ONLY the JSON array, no other text."""
     )
     try:
         return json.loads(response.content[0].text)
-    except json.JSONDecodeError:
-        return [{"skill": s, "frequency": c, "closure_path": "", "project_mapping": None} for s, c in top_gaps]
+    except (json.JSONDecodeError, Exception):
+        return [{"skill": s, "frequency": c, "closure_path": None, "project_mapping": None} for s, c in top_gaps]
 
 
 def save_gaps(gap_analyses: list[dict]):
