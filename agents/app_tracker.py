@@ -148,6 +148,11 @@ def get_rejection_patterns() -> list[dict]:
     return patterns
 
 
+def run() -> dict:
+    """Called by n8n weekly cron — checks for follow-up reminders."""
+    return {"follow_ups": run_weekly_check()}
+
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "pipeline":

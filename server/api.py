@@ -99,6 +99,57 @@ def run_agent6():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── CV Tailor Endpoints ───────────────────────────────────────────────────────
+
+class PreviewRequest(BaseModel):
+    job_id: int
+
+
+class TailorRequest(BaseModel):
+    job_id: int
+    include_cover_letter: bool = True
+    skills_to_add: List[str] = []
+    skills_to_remove: List[str] = []
+
+
+@app.post("/cv/tailor/preview")
+def tailor_cv_preview(body: PreviewRequest):
+    try:
+        from agents.cv_tailor import fetch_job, read_base_cv, preview_changes
+        job = fetch_job(body.job_id)
+        cv_tex = read_base_cv()
+        result = preview_changes(job, cv_tex)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cv/tailor")
+def tailor_cv_endpoint(body: TailorRequest):
+    try:
+        from agents.cv_tailor import run
+        result = run(body.job_id, body.include_cover_letter, body.skills_to_add, body.skills_to_remove)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/cv/tailored/{job_id}")
+def get_tailored_files(job_id: int):
+    try:
+        from agents.cv_tailor import fetch_job, sanitize_folder_name
+        from pathlib import Path
+        job = fetch_job(job_id)
+        folder_name = sanitize_folder_name(job["company"], job["title"])
+        output_dir = Path("/Users/vasuchukka/Desktop/job") / folder_name
+        if not output_dir.exists():
+            return {"exists": False, "folder": str(output_dir), "files": []}
+        files = [f.name for f in output_dir.iterdir() if f.is_file()]
+        return {"exists": True, "folder": str(output_dir), "files": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Dashboard Data Endpoints ──────────────────────────────────────────────────
 
 # ── Profile Endpoints ─────────────────────────────────────────────────────────
@@ -201,7 +252,7 @@ def get_radar():
         GROUP BY skill
         HAVING COUNT(*) >= 3
         ORDER BY frequency DESC
-        LIMIT 12
+        LIMIT 15
     """)
     rows = cur.fetchall()
 
@@ -293,6 +344,58 @@ def get_gaps():
     for g in gaps:
         g["week_start"] = str(g["week_start"])
     return {"gaps": gaps}
+
+
+@app.get("/data/interview-prep")
+def get_interview_prep():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT ip.id, ip.job_id, ip.questions, ip.culture_qa, ip.questions_to_ask, ip.generated_at,
+               jl.title, jl.company, jl.score, jl.url, jl.location
+        FROM interview_prep ip
+        JOIN job_listings jl ON ip.job_id = jl.id
+        ORDER BY ip.generated_at DESC
+        LIMIT 20
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    for r in rows:
+        r["generated_at"] = str(r["generated_at"])
+        if isinstance(r["questions"], str):
+            r["questions"] = json.loads(r["questions"])
+        if isinstance(r["culture_qa"], str):
+            r["culture_qa"] = json.loads(r["culture_qa"])
+    return {"prep": rows}
+
+
+class StatusBody(BaseModel):
+    status: str
+    notes: str = ""
+
+
+@app.post("/applications/{job_id}/status")
+def update_application_status(job_id: int, body: StatusBody):
+    try:
+        from agents.app_tracker import update_status
+        result = update_status(job_id, body.status, body.notes)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/data/pipeline")
+def get_pipeline_data():
+    try:
+        from agents.app_tracker import get_pipeline
+        return get_pipeline()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/data/stats")

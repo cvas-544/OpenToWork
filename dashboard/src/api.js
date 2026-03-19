@@ -70,6 +70,58 @@ export async function fetchGaps() {
   }
 }
 
+export async function previewTailorCV(jobId) {
+  const res = await fetch(`${API_URL}/cv/tailor/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId }),
+  });
+  if (!res.ok) throw new Error(`Preview failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function tailorCV(jobId, includeCoverLetter = true, skillsToAdd = [], skillsToRemove = []) {
+  const res = await fetch(`${API_URL}/cv/tailor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      job_id: jobId,
+      include_cover_letter: includeCoverLetter,
+      skills_to_add: skillsToAdd,
+      skills_to_remove: skillsToRemove,
+    }),
+  });
+  if (!res.ok) throw new Error(`Tailor CV failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function fetchInterviewPrep() {
+  try {
+    const res = await fetch(`${API_URL}/data/interview-prep`);
+    if (!res.ok) throw new Error("API error");
+    const data = await res.json();
+    return data.prep;
+  } catch (e) {
+    console.warn("[API] fetchInterviewPrep failed:", e.message);
+    return null;
+  }
+}
+
+export async function updateApplicationStatus(jobId, status, notes = "") {
+  try {
+    const res = await fetch(`${API_URL}/applications/${jobId}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, notes }),
+    });
+    if (!res.ok) throw new Error("API error");
+    return await res.json();
+  } catch (e) {
+    console.warn("[API] updateApplicationStatus failed:", e.message);
+    return null;
+  }
+}
+
 export async function updateSkills(skills) {
   try {
     const res = await fetch(`${API_URL}/profile/skills`, {

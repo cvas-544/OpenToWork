@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, fetchInterviewPrep } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
@@ -122,7 +122,7 @@ const navItems = [
   { id: "jobs", label: "Jobs Board", icon: "◈" },
   { id: "map", label: "Map View", icon: "◎" },
   { id: "gaps", label: "Skill Gaps", icon: "△" },
-  { id: "timeline", label: "Projects Timeline", icon: "▭" },
+  { id: "timeline", label: "Your Projects", icon: "▭" },
   { id: "interview", label: "Interview Prep", icon: "◇" },
   { id: "analytics", label: "Analytics", icon: "◉" },
 ];
@@ -337,8 +337,43 @@ const JobsBoard = () => {
   const [sortOrder, setSortOrder] = useState("newest");
   const [statusFilter, setStatusFilter] = useState("all");
   const [statusMap, setStatusMap] = useState({});
+  const [tailoring, setTailoring] = useState(false);
+  const [tailored, setTailored] = useState({});
+  const [includeCoverLetter, setIncludeCoverLetter] = useState(true);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [showTailorModal, setShowTailorModal] = useState(false);
+  const [localAdd, setLocalAdd] = useState([]);
+  const [localRemove, setLocalRemove] = useState([]);
+  const [addInput, setAddInput] = useState("");
+  const [removeInput, setRemoveInput] = useState("");
 
   const effectiveStatus = (j) => statusMap[j.id] ?? j.status ?? "new";
+
+  const handleOpenTailorModal = async (job) => {
+    setPreviewLoading(true);
+    try {
+      const preview = await previewTailorCV(job.id);
+      setLocalAdd(preview.skills_to_add || []);
+      setLocalRemove(preview.skills_to_remove || []);
+      setShowTailorModal(true);
+    } catch (e) {
+      console.error("[Preview]", e);
+    }
+    setPreviewLoading(false);
+  };
+
+  const handleRunTailor = async () => {
+    setTailoring(true);
+    try {
+      const result = await tailorCV(selected.id, includeCoverLetter, localAdd, localRemove);
+      setTailored(prev => ({ ...prev, [selected.id]: result }));
+      setShowTailorModal(false);
+    } catch (e) {
+      console.error("[Tailor CV]", e);
+    }
+    setTailoring(false);
+  };
+
   const setJobStatus = (jobId, status, e) => {
     e.stopPropagation();
     setStatusMap(prev => ({ ...prev, [jobId]: status }));
@@ -415,6 +450,7 @@ const JobsBoard = () => {
   const Sep = () => <div style={{ width: 1, height: 18, background: T.gray200, flexShrink: 0 }} />;
 
   return (
+    <>
     <div style={{ display: "flex", gap: 14, height: "calc(100vh - 140px)" }}>
       <Card style={{ flex: 1, padding: "24px", overflow: "auto" }}>
         {/* Single filter row */}
@@ -558,6 +594,18 @@ const JobsBoard = () => {
                 boxShadow: `0 4px 16px rgba(232,98,26,0.3)`, transition: "all 0.2s",
               }}>⚡ Generate Interview Prep</button>
               <button
+                onClick={() => !previewLoading && !tailoring && handleOpenTailorModal(selected)}
+                disabled={previewLoading || tailoring}
+                style={{
+                  width: "100%", padding: "12px", borderRadius: 12, fontSize: 12, fontWeight: 700,
+                  fontFamily: "'DM Mono', monospace", transition: "all 0.2s",
+                  background: tailored[selected.id] ? T.green : T.orange,
+                  border: "none", color: "#fff",
+                  cursor: previewLoading ? "wait" : "pointer",
+                  opacity: previewLoading ? 0.8 : 1,
+                }}
+              >{previewLoading ? "⏳ Analyzing..." : tailored[selected.id] ? "✓ CV Tailored" : "✂ Tailor CV"}</button>
+              <button
                 onClick={() => selected.url && window.open(selected.url, "_blank")}
                 style={{
                   width: "100%", padding: "12px", borderRadius: 12, fontSize: 12, fontWeight: 700,
@@ -574,6 +622,66 @@ const JobsBoard = () => {
         </Card>
       </div>
     </div>
+
+    {/* ── Tailor CV Modal ── */}
+    {showTailorModal && selected && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ background: "#fff", borderRadius: 20, padding: 32, width: 540, maxHeight: "85vh", overflow: "auto", position: "relative", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+          <button onClick={() => setShowTailorModal(false)} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", fontSize: 18, color: T.gray400, cursor: "pointer" }}>✕</button>
+
+          <div style={{ fontSize: 16, fontWeight: 800, color: T.black, fontFamily: "'Sora', sans-serif", marginBottom: 4 }}>CV Tailoring Preview</div>
+          <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 24 }}>{selected.title} @ {selected.company}</div>
+
+          {/* Skills to Add */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.gray600, fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Skills to Add</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {localAdd.map(s => (
+                <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 99, background: T.orangeXLight, border: `1px solid ${T.orange}`, color: T.orange, fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
+                  {s}
+                  <button onClick={() => setLocalAdd(localAdd.filter(x => x !== s))} style={{ background: "none", border: "none", color: T.orange, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+                </span>
+              ))}
+              {localAdd.length === 0 && <span style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>None suggested</span>}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input value={addInput} onChange={e => setAddInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && addInput.trim()) { setLocalAdd([...localAdd, addInput.trim()]); setAddInput(""); }}} placeholder="Add a skill..." style={{ flex: 1, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.gray200}`, fontFamily: "'DM Mono', monospace", outline: "none" }} />
+              <button onClick={() => { if (addInput.trim()) { setLocalAdd([...localAdd, addInput.trim()]); setAddInput(""); }}} style={{ padding: "6px 12px", borderRadius: 8, background: T.orange, border: "none", color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>+</button>
+            </div>
+          </div>
+
+          {/* Skills to Remove */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.gray600, fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Skills to Remove</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {localRemove.map(s => (
+                <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 99, background: T.redLight, border: `1px solid ${T.red}`, color: T.red, fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
+                  {s}
+                  <button onClick={() => setLocalRemove(localRemove.filter(x => x !== s))} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+                </span>
+              ))}
+              {localRemove.length === 0 && <span style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>None suggested</span>}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input value={removeInput} onChange={e => setRemoveInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && removeInput.trim()) { setLocalRemove([...localRemove, removeInput.trim()]); setRemoveInput(""); }}} placeholder="Add skill to remove..." style={{ flex: 1, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.gray200}`, fontFamily: "'DM Mono', monospace", outline: "none" }} />
+              <button onClick={() => { if (removeInput.trim()) { setLocalRemove([...localRemove, removeInput.trim()]); setRemoveInput(""); }}} style={{ padding: "6px 12px", borderRadius: 8, background: T.red, border: "none", color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>+</button>
+            </div>
+          </div>
+
+          {/* Cover letter toggle */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+            <input type="checkbox" id="cover-letter-modal" checked={includeCoverLetter} onChange={e => setIncludeCoverLetter(e.target.checked)} style={{ accentColor: T.orange, cursor: "pointer", width: 14, height: 14 }} />
+            <label htmlFor="cover-letter-modal" style={{ fontSize: 11, color: T.gray400, cursor: "pointer", fontFamily: "'DM Mono', monospace", userSelect: "none" }}>Include cover letter</label>
+          </div>
+
+          {/* Run button */}
+          <button onClick={handleRunTailor} disabled={tailoring} style={{ width: "100%", padding: "14px", borderRadius: 12, background: T.orange, border: "none", color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: "'DM Mono', monospace", cursor: tailoring ? "wait" : "pointer", opacity: tailoring ? 0.8 : 1, boxShadow: `0 4px 16px rgba(232,98,26,0.3)` }}>
+            {tailoring ? "⏳ Tailoring CV..." : "✂ Run Tailoring"}
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 
@@ -955,159 +1063,532 @@ const SkillGaps = () => {
   );
 };
 
-// ─── Timeline ─────────────────────────────────────────────────────────────────
-const GANTT_MONTHS = ["Jan '25","Mar","May","Jul","Sep","Nov","Jan '26","Feb","Mar"];
-const barColor = (s) => s === "active" ? T.orange : s === "completed" ? "#2C2C2C" : "#3A3A3A";
-const barTextColor = (s) => s === "active" ? "#fff" : "#666";
+// ─── Your Projects ────────────────────────────────────────────────────────────
+const hr = (r) => r * 1.5; // halo radius from inner radius
 
-const Timeline = () => (
-  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+const YourProjects = () => {
+  const W = 900, H = 560;
+  const nodesRef = useRef([]);
+  const edgesRef = useRef([]);
+  const frameRef = useRef(null);
+  const tickRef = useRef(null);
+  const [renderNodes, setRenderNodes] = useState([]);
+  const [renderEdges, setRenderEdges] = useState([]);
+  const [form, setForm] = useState({ name: "", skills: "" });
+  const [selected, setSelected] = useState(null);
+  const [addSkillInput, setAddSkillInput] = useState("");
 
-    {/* ── Hero header ── */}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 48 }}>
-      <div>
-        <div style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 64, lineHeight: 0.9, color: T.black, letterSpacing: 3 }}>PROJECTS</div>
-        <div style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 64, lineHeight: 0.9, color: T.orange, letterSpacing: 3 }}>TIMELINE</div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", paddingTop: 8 }}>
-        {[["active", T.orange], ["paused", "#3A3A3A"], ["completed", "#2C2C2C"]].map(([s, c]) => (
-          <div key={s} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 24, height: 8, background: c, borderRadius: 2, border: s === "completed" ? "1px solid #444" : "none" }} />
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray600, textTransform: "uppercase", letterSpacing: 1 }}>{s}</span>
+  // Build initial graph from static projects data
+  useEffect(() => {
+    const ns = [];
+    const es = [];
+    const seen = {};
+    // Count how many projects each skill appears in
+    const freqCount = {};
+    projects.forEach(p => p.skills.forEach(s => { freqCount[s] = (freqCount[s] || 0) + 1; }));
+
+    projects.forEach((p, pi) => {
+      const pId = `p-${p.id}`;
+      const angle = (pi / projects.length) * Math.PI * 2;
+      const r = Math.min(14, Math.round(7 + p.skills.length * 1.2));
+      ns.push({
+        id: pId, type: "project", label: p.name,
+        x: W / 2 + Math.cos(angle) * 320,
+        y: H / 2 + Math.sin(angle) * 220,
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        r,
+      });
+      p.skills.forEach(skill => {
+        const sId = `s-${skill}`;
+        if (!seen[skill]) {
+          seen[skill] = true;
+          const freq = freqCount[skill] || 1;
+          const sa = Math.random() * Math.PI * 2;
+          ns.push({
+            id: sId, type: "skill", label: skill,
+            x: W / 2 + Math.cos(sa) * (120 + Math.random() * 310),
+            y: H / 2 + Math.sin(sa) * (90 + Math.random() * 220),
+            vx: (Math.random() - 0.5) * 0.4,
+            vy: (Math.random() - 0.5) * 0.4,
+            r: Math.round(4 + freq * 1.5),
+            freq,
+          });
+        }
+        es.push({ source: pId, target: sId });
+      });
+    });
+    nodesRef.current = ns;
+    edgesRef.current = es;
+    setRenderEdges([...es]);
+  }, []);
+
+  // Physics simulation loop
+  useEffect(() => {
+    const tick = () => {
+      const ns = nodesRef.current;
+      if (!ns.length) { frameRef.current = requestAnimationFrame(tick); return; }
+
+      const fx = Array(ns.length).fill(0);
+      const fy = Array(ns.length).fill(0);
+
+      // Node-node repulsion (using halo radius for spacing)
+      for (let i = 0; i < ns.length; i++) {
+        for (let j = i + 1; j < ns.length; j++) {
+          const dx = ns[j].x - ns[i].x;
+          const dy = ns[j].y - ns[i].y;
+          const d2 = dx * dx + dy * dy || 0.01;
+          const d = Math.sqrt(d2);
+          const minD = hr(ns[i].r) + hr(ns[j].r) + 14;
+          if (d < minD * 2.5) {
+            const f = (minD * minD) / (d2 * d) * 0.55;
+            fx[i] -= dx * f; fy[i] -= dy * f;
+            fx[j] += dx * f; fy[j] += dy * f;
+          }
+        }
+      }
+
+      // Edge spring attraction
+      const idxMap = {};
+      ns.forEach((n, i) => { idxMap[n.id] = i; });
+      edgesRef.current.forEach(e => {
+        const si = idxMap[e.source], ti = idxMap[e.target];
+        if (si == null || ti == null) return;
+        const dx = ns[ti].x - ns[si].x;
+        const dy = ns[ti].y - ns[si].y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 0.1;
+        const ideal = 80 + hr(ns[si].r) + hr(ns[ti].r);
+        const f = (d - ideal) * 0.022;
+        const ux = dx / d, uy = dy / d;
+        fx[si] += ux * f; fy[si] += uy * f;
+        fx[ti] -= ux * f; fy[ti] -= uy * f;
+      });
+
+      // Integrate + center gravity + boundary clamp (using halo for bounds)
+      let maxVel = 0;
+      const next = ns.map((n, i) => {
+        const gx = (W / 2 - n.x) * 0.0015;
+        const gy = (H / 2 - n.y) * 0.0015;
+        const nvx = (n.vx + fx[i] + gx) * 0.78;
+        const nvy = (n.vy + fy[i] + gy) * 0.78;
+        maxVel = Math.max(maxVel, Math.abs(nvx) + Math.abs(nvy));
+        const h = hr(n.r);
+        const nx = Math.max(h + 4, Math.min(W - h - 4, n.x + nvx));
+        const ny = Math.max(h + 4, Math.min(H - h - 28, n.y + nvy));
+        return { ...n, x: nx, y: ny, vx: nvx, vy: nvy };
+      });
+
+      nodesRef.current = next;
+      setRenderNodes([...next]);
+      // Only keep animating while nodes are still moving
+      if (maxVel > 0.06) {
+        frameRef.current = requestAnimationFrame(tick);
+      }
+    };
+    tickRef.current = tick;
+    frameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, []);
+
+  const restartSim = () => {
+    cancelAnimationFrame(frameRef.current);
+    frameRef.current = requestAnimationFrame(tickRef.current);
+  };
+
+  const addProject = () => {
+    const name = form.name.trim();
+    const skills = form.skills.split(",").map(s => s.trim()).filter(Boolean);
+    if (!name || !skills.length) return;
+    const pId = `p-custom-${Date.now()}`;
+    const newNodes = [{
+      id: pId, type: "project", label: name,
+      x: W / 2 + (Math.random() - 0.5) * 160,
+      y: H / 2 + (Math.random() - 0.5) * 120,
+      vx: (Math.random() - 0.5), vy: (Math.random() - 0.5),
+      r: Math.min(14, Math.round(7 + skills.length * 1.2)),
+    }];
+    const newEdges = [];
+    skills.forEach(skill => {
+      const sId = `s-${skill}`;
+      if (!nodesRef.current.find(n => n.id === sId)) {
+        newNodes.push({
+          id: sId, type: "skill", label: skill,
+          x: W / 2 + (Math.random() - 0.5) * 300,
+          y: H / 2 + (Math.random() - 0.5) * 220,
+          vx: (Math.random() - 0.5), vy: (Math.random() - 0.5),
+          r: Math.round(4 + 1 * 1.5), freq: 1,
+        });
+      }
+      newEdges.push({ source: pId, target: sId });
+    });
+    nodesRef.current = [...nodesRef.current, ...newNodes];
+    edgesRef.current = [...edgesRef.current, ...newEdges];
+    setRenderEdges([...edgesRef.current]);
+    setForm({ name: "", skills: "" });
+    restartSim();
+  };
+
+  const addSkillToProject = (projectId, skillName) => {
+    const name = skillName.trim();
+    if (!name) return;
+    const sId = `s-${name}`;
+    if (edgesRef.current.some(e => e.source === projectId && e.target === sId)) return;
+    const extraNodes = [];
+    if (!nodesRef.current.find(n => n.id === sId)) {
+      const proj = nodesRef.current.find(n => n.id === projectId);
+      extraNodes.push({
+        id: sId, type: "skill", label: name,
+        x: (proj?.x || W / 2) + (Math.random() - 0.5) * 80,
+        y: (proj?.y || H / 2) + (Math.random() - 0.5) * 60,
+        vx: (Math.random() - 0.5), vy: (Math.random() - 0.5),
+        r: Math.round(4 + 1 * 1.5), freq: 1,
+      });
+    }
+    const skillCount = edgesRef.current.filter(e => e.source === projectId).length + 1;
+    // After adding edge, recount freq for this skill
+    edgesRef.current = [...edgesRef.current, { source: projectId, target: sId }];
+    const newFreq = edgesRef.current.filter(e => e.target === sId).length;
+    nodesRef.current = [
+      ...nodesRef.current.map(n => {
+        if (n.id === projectId) return { ...n, r: Math.min(14, Math.round(7 + skillCount * 1.2)) };
+        if (n.id === sId) return { ...n, r: Math.round(4 + newFreq * 1.5), freq: newFreq };
+        return n;
+      }),
+      ...extraNodes,
+    ];
+    setRenderEdges([...edgesRef.current]);
+    setAddSkillInput("");
+    restartSim();
+  };
+
+  const deleteNode = (id) => {
+    const node = nodesRef.current.find(n => n.id === id);
+    if (!node) return;
+    let newNodes = nodesRef.current.filter(n => n.id !== id);
+    let newEdges = edgesRef.current.filter(e => e.source !== id && e.target !== id);
+    if (node.type === "project") {
+      const stillConnected = new Set();
+      newEdges.forEach(e => { stillConnected.add(e.source); stillConnected.add(e.target); });
+      newNodes = newNodes.filter(n => n.type === "project" || stillConnected.has(n.id));
+    }
+    // Recalculate skill freq + r from remaining edges
+    const freqMap = {};
+    newEdges.forEach(e => { freqMap[e.target] = (freqMap[e.target] || 0) + 1; });
+    newNodes = newNodes.map(n => {
+      if (n.type !== "skill") return n;
+      const freq = freqMap[n.id] || 1;
+      return { ...n, freq, r: Math.round(4 + freq * 1.5) };
+    });
+    nodesRef.current = newNodes;
+    edgesRef.current = newEdges;
+    setRenderNodes([...newNodes]);
+    setRenderEdges([...newEdges]);
+    setSelected(null);
+    restartSim();
+  };
+
+  const nodePos = {};
+  renderNodes.forEach(n => { nodePos[n.id] = n; });
+
+  // Inline popup (avoids component remount)
+  let popup = null;
+  if (selected) {
+    const sn = renderNodes.find(n => n.id === selected.id);
+    if (sn) {
+      const pw = 158, ph = selected.type === "project" ? 88 : 50;
+      const h = hr(sn.r);
+      const px = sn.x + h + 8 + pw > W ? sn.x - h - pw - 8 : sn.x + h + 8;
+      const py = Math.max(4, Math.min(sn.y - ph / 2, H - ph - 4));
+      popup = (
+        <foreignObject x={px} y={py} width={pw} height={ph} onClick={e => e.stopPropagation()}>
+          <div style={{ background: "#fff", border: `1px solid ${T.gray200}`, borderRadius: 8, padding: "8px 10px", boxShadow: "0 3px 14px rgba(0,0,0,0.11)", display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sn.label}</div>
+            {selected.type === "project" && (
+              <div style={{ display: "flex", gap: 4 }}>
+                <input autoFocus placeholder="Add skill…" value={addSkillInput}
+                  onChange={e => setAddSkillInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && addSkillToProject(selected.id, addSkillInput)}
+                  style={{ flex: 1, minWidth: 0, padding: "3px 6px", borderRadius: 5, border: `1px solid ${T.gray200}`, fontSize: 10, outline: "none", background: T.gray100, fontFamily: "'Sora', sans-serif" }}
+                />
+                <button onClick={() => addSkillToProject(selected.id, addSkillInput)}
+                  style={{ padding: "3px 7px", borderRadius: 5, background: T.orange, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>+</button>
+              </div>
+            )}
+            <button onClick={() => deleteNode(selected.id)}
+              style={{ padding: "4px 8px", borderRadius: 5, background: "#FFF0EE", border: "1px solid #FFCAC4", color: "#D93025", fontSize: 10, fontWeight: 600, cursor: "pointer", textAlign: "left", fontFamily: "'Sora', sans-serif" }}>
+              Delete {selected.type === "project" ? "project" : "skill"}
+            </button>
           </div>
-        ))}
-      </div>
-    </div>
+        </foreignObject>
+      );
+    }
+  }
 
-    {/* ── Gantt table ── */}
-    <div style={{ overflowX: "auto" }}>
-      {/* Column headers */}
-      <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", marginBottom: 10 }}>
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray400, textTransform: "uppercase", letterSpacing: 1 }}>Project</div>
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${GANTT_MONTHS.length}, 1fr)` }}>
-          {GANTT_MONTHS.map((m, i) => (
-            <div key={i} style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray400, textAlign: "center", borderLeft: i > 0 ? `1px solid ${T.gray200}` : "none", paddingBottom: 8 }}>{m}</div>
-          ))}
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 28 }}>
+        <div>
+          <div style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 64, lineHeight: 0.9, color: T.black, letterSpacing: 3 }}>YOUR</div>
+          <div style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 64, lineHeight: 0.9, color: T.orange, letterSpacing: 3 }}>PROJECTS</div>
+        </div>
+        <div style={{ display: "flex", gap: 20, alignItems: "center", paddingBottom: 8 }}>
+          {/* Legend: halo + inner preview */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <svg width="28" height="28" viewBox="-14 -14 28 28">
+              <circle r={13} fill="#E8E4DF" />
+              <circle r={8} fill="#2C2C2C" />
+            </svg>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray600, textTransform: "uppercase", letterSpacing: 1 }}>Projects</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <svg width="18" height="18" viewBox="-9 -9 18 18">
+              <circle r={8} fill="#E8E4DF" />
+              <circle r={5} fill="#2C2C2C" />
+            </svg>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray600, textTransform: "uppercase", letterSpacing: 1 }}>Skills</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#AEAAA6" strokeWidth="1.2" strokeDasharray="5 4" /></svg>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray600, textTransform: "uppercase", letterSpacing: 1 }}>Link</span>
+          </div>
         </div>
       </div>
 
-      {/* Top rule */}
-      <div style={{ height: 1, background: T.gray200, marginBottom: 0 }} />
+      {/* Simulation canvas */}
+      <Card style={{ padding: 0, overflow: "hidden", marginBottom: 16, background: "#FAFAF8" }}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", cursor: "default" }}
+          onClick={() => setSelected(null)}
+        >
+          {/* Dashed grey edges */}
+          {renderEdges.map((e, i) => {
+            const s = nodePos[e.source], t = nodePos[e.target];
+            if (!s || !t) return null;
+            return (
+              <line key={i}
+                x1={s.x | 0} y1={s.y | 0} x2={t.x | 0} y2={t.y | 0}
+                stroke="#AEAAA6" strokeOpacity={0.75} strokeWidth={1}
+                strokeDasharray="6 4"
+              />
+            );
+          })}
 
-      {/* Rows */}
-      {projects.map(p => (
-        <div key={p.id} style={{ display: "grid", gridTemplateColumns: "180px 1fr", alignItems: "center", borderBottom: `1px solid ${T.gray200}`, padding: "12px 0" }}>
-          {/* Name + stack */}
-          <div style={{ paddingRight: 20 }}>
-            <div style={{ fontFamily: "'Sora', sans-serif", fontSize: 12, fontWeight: 600, color: p.status === "active" ? T.black : T.gray400 }}>{p.name}</div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: T.gray400, marginTop: 3 }}>
-              {p.skills.slice(0, 3).join(" · ")}
-            </div>
-          </div>
-          {/* Bar track with grid lines */}
-          <div style={{ position: "relative", height: 32 }}>
-            {/* Vertical grid lines */}
-            <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: `repeat(${GANTT_MONTHS.length}, 1fr)`, pointerEvents: "none" }}>
-              {GANTT_MONTHS.map((_, i) => (
-                <div key={i} style={{ borderLeft: i > 0 ? `1px solid ${T.gray200}` : "none" }} />
-              ))}
-            </div>
-            {/* Ghost track */}
-            <div style={{ position: "absolute", left: `${p.start}%`, width: `${p.end - p.start}%`, top: 6, height: 20, background: `${barColor(p.status)}22`, borderRadius: 4 }} />
-            {/* Progress fill */}
-            <div style={{ position: "absolute", left: `${p.start}%`, width: `${(p.end - p.start) * (p.pct / 100)}%`, top: 6, height: 20, background: barColor(p.status), borderRadius: 4, transition: "width 1.2s ease", display: "flex", alignItems: "center", paddingLeft: 8, overflow: "hidden" }}>
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: barTextColor(p.status), whiteSpace: "nowrap" }}>{p.pct}%</span>
-            </div>
-          </div>
+          {/* Nodes: outer halo + inner dark circle + external label */}
+          {renderNodes.map(n => {
+            const isSel = selected?.id === n.id;
+            const h = hr(n.r);
+            // Break project labels onto multiple lines; skill labels single line
+            const words = n.label.split(" ");
+            const lines = n.type === "project" && words.length > 1
+              ? (words.length <= 2
+                  ? words
+                  : [words.slice(0, Math.ceil(words.length / 2)).join(" "), words.slice(Math.ceil(words.length / 2)).join(" ")])
+              : [n.label.length > 14 ? n.label.slice(0, 13) + "…" : n.label];
+            const labelOffsetY = h + 12;
+            return (
+              <g key={n.id} transform={`translate(${n.x | 0},${n.y | 0})`}
+                style={{ cursor: "pointer" }}
+                onClick={e => { e.stopPropagation(); setSelected({ id: n.id, type: n.type }); setAddSkillInput(""); }}
+              >
+                {/* Outer halo */}
+                <circle r={h}
+                  fill={isSel ? `${T.orange}18` : "#E8E4DF"}
+                  stroke={isSel ? T.orange : "none"}
+                  strokeWidth={isSel ? 1.5 : 0}
+                />
+                {/* Inner dark core — skill opacity scales with frequency */}
+                <circle r={n.r} fill="#2C2C2C"
+                  fillOpacity={n.type === "skill" ? Math.min(1, 0.42 + (n.freq || 1) * 0.15) : 1}
+                />
+                {/* Label outside, below halo */}
+                <text textAnchor="middle"
+                  fontFamily="'Sora', sans-serif"
+                  fontSize={n.type === "project" ? 10 : 9}
+                  fill="#3C3C3C"
+                  fontWeight={n.type === "project" ? 600 : 400}
+                  style={{ pointerEvents: "none", userSelect: "none" }}
+                >
+                  {lines.map((line, li) => (
+                    <tspan key={li} x={0} dy={li === 0 ? labelOffsetY : 13}>{line}</tspan>
+                  ))}
+                </text>
+              </g>
+            );
+          })}
+
+          {popup}
+        </svg>
+      </Card>
+
+      {/* Add project form */}
+      <Card style={{ padding: "20px 24px" }}>
+        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray400, textTransform: "uppercase", letterSpacing: 2, marginBottom: 12 }}>Add to Playground</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <input placeholder="Project name" value={form.name}
+            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            style={{ flex: "1 1 150px", padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.gray200}`, background: T.gray100, fontSize: 13, fontFamily: "'Sora', sans-serif", color: T.black, outline: "none" }}
+          />
+          <input placeholder="Skills, comma separated (e.g. Python, FastAPI, Docker)" value={form.skills}
+            onChange={e => setForm(f => ({ ...f, skills: e.target.value }))}
+            onKeyDown={e => e.key === "Enter" && addProject()}
+            style={{ flex: "3 1 260px", padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.gray200}`, background: T.gray100, fontSize: 13, fontFamily: "'Sora', sans-serif", color: T.black, outline: "none" }}
+          />
+          <button onClick={addProject}
+            style={{ padding: "10px 22px", borderRadius: 10, background: T.orange, border: "none", color: "#fff", fontSize: 13, fontFamily: "'Sora', sans-serif", fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
+            + Add
+          </button>
         </div>
-      ))}
-
-      {/* Bottom rule */}
-      <div style={{ height: 1, background: T.gray200 }} />
+      </Card>
     </div>
-
-    {/* ── AI Insights strip ── */}
-    <div style={{ marginTop: 32, display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: T.gray400, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>AI · Smart Skill Mapping</div>
-      {[
-        { insight: "OpenToWork (n8n + Claude API + PostgreSQL) directly matches AI Engineer & ML Engineer roles", impact: "High", project: "OpenToWork" },
-        { insight: "FinsenseAI demonstrates Claude API + AWS in production — strong signal for fintech AI roles", impact: "High", project: "FinsenseAI" },
-        { insight: "inspo-drop Chrome Extension shows shipping real TypeScript products — closes 4 job gaps", impact: "Medium", project: "inspo-drop" },
-      ].map((ins, i) => (
-        <div key={i} style={{ display: "flex", gap: 12, padding: "12px 16px", background: T.gray100, borderRadius: 10, border: `1px solid ${T.gray200}`, alignItems: "flex-start" }}>
-          <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>⚡</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, color: T.gray600, lineHeight: 1.6, fontFamily: "'Sora', sans-serif" }}>{ins.insight}</div>
-            <div style={{ marginTop: 5, display: "flex", gap: 10, alignItems: "center" }}>
-              <span style={{ fontSize: 10, color: T.orange, fontFamily: "'DM Mono', monospace" }}>→ {ins.project}</span>
-              <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: ins.impact === "High" ? T.green : T.amber }}>{ins.impact} Impact</span>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-);
+  );
+};
 
 // ─── Interview Prep ───────────────────────────────────────────────────────────
 const InterviewPrepView = () => {
-  const [activeJob, setActiveJob] = useState(interviewPrep[0]);
+  const [prepSets, setPrepSets] = useState([]);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [practiced, setPracticed] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("questions"); // questions | culture | ask
   const diffColors = { Easy: { c: T.green, b: T.greenLight }, Medium: { c: T.amber, b: T.amberLight }, Hard: { c: T.red, b: T.redLight } };
+
+  useEffect(() => {
+    fetchInterviewPrep().then(data => {
+      if (data && data.length > 0) setPrepSets(data);
+      setLoading(false);
+    });
+  }, []);
+
+  const active = prepSets[activeIdx];
+  const questions = active?.questions || [];
+  const cultureQA = active?.culture_qa || [];
+  const questionsToAsk = active?.questions_to_ask || [];
+  const practicedCount = questions.filter((_, i) => practiced[`${activeIdx}-${i}`]).length;
+
+  if (loading) return <Card style={{ padding: 40, textAlign: "center", color: T.gray400 }}>Loading interview prep...</Card>;
+
+  if (prepSets.length === 0) return (
+    <Card style={{ padding: 40, textAlign: "center" }}>
+      <div style={{ fontSize: 14, color: T.gray400, fontFamily: "'Sora', sans-serif" }}>No interview prep generated yet.</div>
+      <div style={{ fontSize: 11, color: T.gray400, marginTop: 8, fontFamily: "'DM Mono', monospace" }}>Run Agent 4 after jobs score ≥ 80</div>
+    </Card>
+  );
 
   return (
     <div style={{ display: "flex", gap: 14, height: "calc(100vh - 140px)" }}>
-      <Card style={{ width: 240, padding: "20px", flexShrink: 0 }}>
-        <Label>Prep Sets</Label>
+      {/* Sidebar */}
+      <Card style={{ width: 240, padding: "20px", flexShrink: 0, overflow: "auto" }}>
+        <Label>Prep Sets ({prepSets.length})</Label>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {interviewPrep.map(ip => (
-            <div key={ip.id} onClick={() => setActiveJob(ip)} style={{
-              padding: "14px", borderRadius: 12, cursor: "pointer",
-              background: activeJob.id === ip.id ? T.orangeXLight : T.gray100,
-              border: `1px solid ${activeJob.id === ip.id ? T.orange : T.gray200}`,
-              transition: "all 0.2s",
-            }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif" }}>{ip.company}</div>
-              <div style={{ fontSize: 10, color: T.gray400, marginBottom: 8, fontFamily: "'DM Mono', monospace" }}>{ip.role}</div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <span style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>{ip.practiced}/{ip.questions} done</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(ip.score), fontFamily: "'DM Mono', monospace" }}>{ip.score}%</span>
+          {prepSets.map((ip, idx) => {
+            const qCount = (ip.questions || []).length;
+            const doneCount = (ip.questions || []).filter((_, i) => practiced[`${idx}-${i}`]).length;
+            return (
+              <div key={ip.id} onClick={() => { setActiveIdx(idx); setActiveTab("questions"); }} style={{
+                padding: "14px", borderRadius: 12, cursor: "pointer",
+                background: activeIdx === idx ? T.orangeXLight : T.gray100,
+                border: `1px solid ${activeIdx === idx ? T.orange : T.gray200}`,
+                transition: "all 0.2s",
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif" }}>{ip.company}</div>
+                <div style={{ fontSize: 10, color: T.gray400, marginBottom: 8, fontFamily: "'DM Mono', monospace" }}>{ip.title}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>{doneCount}/{qCount} done</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(ip.score), fontFamily: "'DM Mono', monospace" }}>{ip.score}%</span>
+                </div>
+                <div style={{ height: 3, background: T.gray200, borderRadius: 99 }}>
+                  <div style={{ width: `${qCount > 0 ? (doneCount / qCount) * 100 : 0}%`, height: "100%", background: T.orange, borderRadius: 99 }} />
+                </div>
               </div>
-              <div style={{ height: 3, background: T.gray200, borderRadius: 99 }}>
-                <div style={{ width: `${(ip.practiced / ip.questions) * 100}%`, height: "100%", background: T.orange, borderRadius: 99 }} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
 
+      {/* Detail panel */}
       <Card style={{ flex: 1, padding: "24px", overflow: "auto" }}>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 28, letterSpacing: "-0.01em", color: T.black }}>{activeJob.company} — {activeJob.role}</div>
-          <div style={{ fontSize: 11, color: T.gray400, marginTop: 2, fontFamily: "'DM Mono', monospace" }}>Generated {activeJob.generated} · {activeJob.questions} questions</div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 28, letterSpacing: "-0.01em", color: T.black }}>{active.company} — {active.title}</div>
+          <div style={{ fontSize: 11, color: T.gray400, marginTop: 2, fontFamily: "'DM Mono', monospace" }}>
+            Generated {active.generated_at ? new Date(active.generated_at).toLocaleDateString() : "—"} · {questions.length} questions · {practicedCount} practiced
+          </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {starQuestions.map((q, i) => (
-            <div key={i} style={{ padding: "16px 20px", background: T.gray100, borderRadius: 14, border: `1px solid ${q.practiced ? T.green + "44" : T.gray200}` }}>
-              <div style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "flex-start" }}>
-                <Tag color={diffColors[q.difficulty].c} bg={diffColors[q.difficulty].b}>{q.difficulty}</Tag>
-                <span style={{ fontSize: 13, color: T.black, lineHeight: 1.5, fontFamily: "'Sora', sans-serif", fontWeight: 600 }}>Q{i+1}. {q.q}</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
-                {["Situation","Task","Action","Result"].map(s => (
-                  <div key={s} style={{ padding: "10px 12px", background: "#fff", borderRadius: 10, border: `1px solid ${T.gray200}` }}>
-                    <div style={{ fontSize: 9, color: T.orange, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "'DM Mono', monospace", marginBottom: 4, fontWeight: 700 }}>{s[0]} — {s}</div>
-                    <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'Sora', sans-serif" }}>Add your {s.toLowerCase()}...</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
-                <Tag color={q.practiced ? T.green : T.gray400} bg={q.practiced ? T.greenLight : T.gray100}>
-                  {q.practiced ? "✓ Practiced" : "Mark practiced"}
-                </Tag>
-              </div>
-            </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {[["questions", `Questions (${questions.length})`], ["culture", `Culture Q&A (${cultureQA.length})`], ["ask", `Ask Them (${questionsToAsk.length})`]].map(([id, label]) => (
+            <button key={id} onClick={() => setActiveTab(id)} style={{
+              padding: "6px 14px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 11,
+              fontFamily: "'DM Mono', monospace", fontWeight: 700,
+              background: activeTab === id ? T.orange : T.gray100,
+              color: activeTab === id ? "#fff" : T.gray400,
+            }}>{label}</button>
           ))}
         </div>
+
+        {/* Questions tab */}
+        {activeTab === "questions" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {questions.map((q, i) => {
+              const pKey = `${activeIdx}-${i}`;
+              const isPracticed = !!practiced[pKey];
+              const diff = q.difficulty || "Medium";
+              const dc = diffColors[diff] || diffColors.Medium;
+              return (
+                <div key={i} style={{ padding: "16px 20px", background: T.gray100, borderRadius: 14, border: `1px solid ${isPracticed ? T.green + "44" : T.gray200}` }}>
+                  <div style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "flex-start" }}>
+                    <Tag color={dc.c} bg={dc.b}>{diff}</Tag>
+                    {q.category && <Tag color={T.gray600} bg={T.gray200}>{q.category}</Tag>}
+                    <span style={{ fontSize: 13, color: T.black, lineHeight: 1.5, fontFamily: "'Sora', sans-serif", fontWeight: 600 }}>Q{i+1}. {q.question}</span>
+                  </div>
+                  {q.star_framework && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 10 }}>
+                      {[["S","Situation"], ["T","Task"], ["A","Action"], ["R","Result"]].map(([letter, name]) => (
+                        <div key={name} style={{ padding: "10px 12px", background: "#fff", borderRadius: 10, border: `1px solid ${T.gray200}` }}>
+                          <div style={{ fontSize: 9, color: T.orange, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "'DM Mono', monospace", marginBottom: 4, fontWeight: 700 }}>{letter} — {name}</div>
+                          <div style={{ fontSize: 10, color: T.gray600, fontFamily: "'Sora', sans-serif", lineHeight: 1.4 }}>{q.star_framework[name.toLowerCase()] || `Add your ${name.toLowerCase()}...`}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button onClick={() => setPracticed(p => ({ ...p, [pKey]: !isPracticed }))} style={{
+                      padding: "4px 12px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 11,
+                      fontFamily: "'DM Mono', monospace", fontWeight: 700,
+                      background: isPracticed ? T.greenLight : T.gray200,
+                      color: isPracticed ? T.green : T.gray400,
+                    }}>{isPracticed ? "✓ Practiced" : "Mark practiced"}</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Culture Q&A tab */}
+        {activeTab === "culture" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {cultureQA.map((qa, i) => (
+              <div key={i} style={{ padding: "16px 20px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}` }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif", marginBottom: 8 }}>Q: {qa.question}</div>
+                <div style={{ fontSize: 12, color: T.gray600, fontFamily: "'Sora', sans-serif", lineHeight: 1.6 }}>{qa.answer}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Ask them tab */}
+        {activeTab === "ask" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 4 }}>Questions to ask the interviewer:</div>
+            {questionsToAsk.map((q, i) => (
+              <div key={i} style={{ padding: "14px 18px", background: T.gray100, borderRadius: 12, border: `1px solid ${T.gray200}`, display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <span style={{ fontSize: 11, color: T.orange, fontFamily: "'DM Mono', monospace", fontWeight: 700, flexShrink: 0 }}>{String(i+1).padStart(2,"0")}</span>
+                <span style={{ fontSize: 13, color: T.black, fontFamily: "'Sora', sans-serif", lineHeight: 1.5 }}>{q}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -1411,7 +1892,7 @@ export default function App() {
     if (active === "jobs") return <JobsBoard />;
     if (active === "map") return <MapView />;
     if (active === "gaps") return <SkillGaps />;
-    if (active === "timeline") return <Timeline />;
+    if (active === "timeline") return <YourProjects />;
     if (active === "interview") return <InterviewPrepView />;
     if (active === "analytics") return <Analytics />;
     if (active === "profile") return <ProfileView />;

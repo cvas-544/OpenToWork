@@ -84,17 +84,35 @@ def save_prep(job_id: int, prep: dict):
     conn.close()
 
 
-def run(jobs: list[dict]) -> list[dict]:
-    top_jobs = [j for j in jobs if j.get("score", 0) >= TOP_MATCH_THRESHOLD]
-    print(f"[Agent 4] Generating interview prep for {len(top_jobs)} top matches (score >= {TOP_MATCH_THRESHOLD})")
+def fetch_top_jobs() -> list[dict]:
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, title, company, location, description, score, matched_skills, missing_skills
+           FROM job_listings WHERE score >= %s AND DATE(scraped_at) = CURRENT_DATE
+           AND id NOT IN (SELECT job_id FROM interview_prep)
+           ORDER BY score DESC""",
+        (TOP_MATCH_THRESHOLD,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [
+        {"db_id": r[0], "title": r[1], "company": r[2], "location": r[3],
+         "description": r[4], "score": r[5], "matched_skills": r[6] or [], "missing_skills": r[7] or []}
+        for r in rows
+    ]
+
+
+def run() -> list[dict]:
+    jobs = fetch_top_jobs()
+    print(f"[Agent 4] Generating interview prep for {len(jobs)} top matches (score >= {TOP_MATCH_THRESHOLD})")
 
     results = []
-    for job in top_jobs:
+    for job in jobs:
         print(f"  Prepping: {job['title']} @ {job['company']} (score: {job['score']})")
         prep = generate_prep(job)
-        job_id = job.get("db_id")
-        if job_id:
-            save_prep(job_id, prep)
+        save_prep(job["db_id"], prep)
         results.append({"job": job["title"], "company": job["company"], "prep": prep})
 
     print(f"[Agent 4] Done — {len(results)} prep sets generated")
@@ -102,20 +120,5 @@ def run(jobs: list[dict]) -> list[dict]:
 
 
 if __name__ == "__main__":
-    # Load top scoring jobs from DB for testing
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute(
-        """SELECT id, title, company, location, description, score, matched_skills, missing_skills
-           FROM job_listings WHERE score >= 80 AND DATE(scraped_at) = CURRENT_DATE LIMIT 3"""
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    jobs = [
-        {"db_id": r[0], "title": r[1], "company": r[2], "location": r[3],
-         "description": r[4], "score": r[5], "matched_skills": r[6] or [], "missing_skills": r[7] or []}
-        for r in rows
-    ]
-    result = run(jobs)
+    result = run()
     print(json.dumps(result, indent=2, default=str))
