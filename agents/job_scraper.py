@@ -116,7 +116,13 @@ def scrape_apify_linkedin(keyword: str) -> list[dict]:
         jobs = []
         for item in client.dataset(run["defaultDatasetId"]).iterate_items():
             location = item.get("location", "") or ""
-            apply_url = item.get("applyUrl", "") or item.get("link", "") or ""
+            job_id = item.get("jobId", "") or item.get("id", "")
+            apply_url = (
+                item.get("applyUrl", "")
+                or item.get("link", "")
+                or item.get("jobUrl", "")
+                or (f"https://www.linkedin.com/jobs/view/{job_id}" if job_id else "")
+            )
             jobs.append({
                 "title": item.get("title", ""),
                 "company": item.get("companyName", ""),
