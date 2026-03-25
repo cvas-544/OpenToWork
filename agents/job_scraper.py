@@ -68,13 +68,11 @@ def fetch_job_details(refnr: str) -> dict:
         return empty
 
 
-def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict]:
+def scrape_arbeitsagentur(keyword: str) -> list[dict]:
     url = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
     headers = {"X-API-Key": ARBEITSAGENTUR_KEY}
     params = {
         "was": keyword,
-        "wo": location,
-        "umkreis": 50,
         "angebotsart": 1,
         "page": 1,
         "size": 25,
@@ -91,7 +89,7 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
             jobs.append({
                 "title": item.get("beruf", ""),
                 "company": item.get("arbeitgeber", ""),
-                "location": item.get("arbeitsort", {}).get("ort", location),
+                "location": item.get("arbeitsort", {}).get("ort", "Germany"),
                 "remote": False,
                 "url": apply_url,
                 "description": details["description"],
@@ -100,7 +98,7 @@ def scrape_arbeitsagentur(keyword: str, location: str = "München") -> list[dict
             })
         return jobs
     except Exception as e:
-        print(f"[Arbeitsagentur] Error for '{keyword}' in '{location}': {e}")
+        print(f"[Arbeitsagentur] Error for '{keyword}': {e}")
         return []
 
 
@@ -170,7 +168,7 @@ def run() -> list[dict]:
     all_jobs = []
 
     for keyword in TARGET_KEYWORDS:
-        all_jobs += scrape_arbeitsagentur(keyword, "München")
+        all_jobs += scrape_arbeitsagentur(keyword)
         all_jobs += scrape_apify_linkedin(keyword)
 
     new_jobs = deduplicate_and_save(all_jobs)
