@@ -22,7 +22,7 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche")
 
-ARBEITSAGENTUR_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "KI", "KI-Engineer", "AI", "KI Entwickler"]
+ARBEITSAGENTUR_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "KI", "KI-Engineer", "AI", "KI Entwickler", "Agentic AI"]
 LINKEDIN_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "Agentic AI", "AI Architect", "AI", "ML", "AI/ML"]
 TARGET_LOCATIONS = ["Germany", "Munich", "Berlin", "Frankfurt", "Stuttgart", "Remote"]
 
