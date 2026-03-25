@@ -22,7 +22,7 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche")
 
-TARGET_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning"]
+TARGET_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "KI", "KI-Engineer", "AI", "KI Entwickler"]
 TARGET_LOCATIONS = ["Germany", "Munich", "Berlin", "Frankfurt", "Stuttgart", "Remote"]
 
 # Base LinkedIn search filters (copied from manual search — swap keywords per run)
