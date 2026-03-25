@@ -22,7 +22,8 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche")
 
-TARGET_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "KI", "KI-Engineer", "AI", "KI Entwickler"]
+ARBEITSAGENTUR_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "KI", "KI-Engineer", "AI", "KI Entwickler"]
+LINKEDIN_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "Agentic AI", "AI Architect", "AI", "ML", "AI/ML"]
 TARGET_LOCATIONS = ["Germany", "Munich", "Berlin", "Frankfurt", "Stuttgart", "Remote"]
 
 # Base LinkedIn search filters (copied from manual search — swap keywords per run)
@@ -167,8 +168,10 @@ def run() -> list[dict]:
     print(f"[Agent 1] Starting job scrape at {datetime.now().isoformat()}")
     all_jobs = []
 
-    for keyword in TARGET_KEYWORDS:
+    for keyword in ARBEITSAGENTUR_KEYWORDS:
         all_jobs += scrape_arbeitsagentur(keyword)
+
+    for keyword in LINKEDIN_KEYWORDS:
         all_jobs += scrape_apify_linkedin(keyword)
 
     new_jobs = deduplicate_and_save(all_jobs)
