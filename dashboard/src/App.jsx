@@ -301,6 +301,7 @@ const Overview = () => {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                 {(j.matched || []).slice(0, 2).map(s => <Tag key={s} color={T.green} bg={T.greenLight}>✓ {s}</Tag>)}
                 {(j.missing || []).map(s => <Tag key={s} color={T.red} bg={T.redLight}>✗ {s}</Tag>)}
+                {!j.url && <Tag color={T.gray400} bg={T.gray200}>No URL</Tag>}
               </div>
             </div>
           ))}
@@ -899,7 +900,7 @@ const MapView = () => {
                           <div style={{ fontFamily: "'Bebas Neue',Anton,sans-serif", fontSize: 16, lineHeight: 1, padding: "2px 6px", borderRadius: 6, background: scoreColor(j.score), color: "#fff" }}>{j.score}</div>
                         </div>
                         <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono',monospace", marginBottom: 6 }}>{j.company}</div>
-                        <button onClick={() => j.url && window.open(j.url, "_blank")} style={{ padding: "4px 10px", borderRadius: 7, cursor: "pointer", background: T.orange, border: "none", color: "#fff", fontSize: 10, fontFamily: "'DM Mono',monospace" }}>↗ Apply</button>
+                        {j.url ? <button onClick={() => window.open(j.url, "_blank")} style={{ padding: "4px 10px", borderRadius: 7, cursor: "pointer", background: T.orange, border: "none", color: "#fff", fontSize: 10, fontFamily: "'DM Mono',monospace" }}>↗ Apply</button> : <span style={{ padding: "4px 10px", borderRadius: 7, background: T.gray200, color: T.gray400, fontSize: 10, fontFamily: "'DM Mono',monospace" }}>No URL</span>}
                       </div>
                     ))}
                   </div>
@@ -923,10 +924,10 @@ const MapView = () => {
             <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono',monospace", marginBottom: 12 }}>
               {selected.company} · {selected.remote ? "🌐 Remote" : selected.location}
             </div>
-            <button
-              onClick={() => selected.url && window.open(selected.url, "_blank")}
-              style={{ width: "100%", padding: "9px", borderRadius: 9, cursor: "pointer", background: T.orange, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: "'DM Mono',monospace" }}
-            >↗ Apply Now</button>
+            {selected.url
+              ? <button onClick={() => window.open(selected.url, "_blank")} style={{ width: "100%", padding: "9px", borderRadius: 9, cursor: "pointer", background: T.orange, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: "'DM Mono',monospace" }}>↗ Apply Now</button>
+              : <div style={{ width: "100%", padding: "9px", borderRadius: 9, background: T.gray200, color: T.gray400, fontSize: 11, fontWeight: 700, fontFamily: "'DM Mono',monospace", textAlign: "center" }}>No URL Available</div>
+            }
           </div>
         )}
       </div>
