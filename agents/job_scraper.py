@@ -29,7 +29,6 @@ TARGET_LOCATIONS = ["Germany", "Munich", "Berlin", "Frankfurt", "Stuttgart", "Re
 # Base LinkedIn search filters (copied from manual search — swap keywords per run)
 LINKEDIN_BASE_PARAMS = {
     "f_JT": "F",                                           # Full-time
-    "f_PP": "100477049,106967730,106772406,103884904",     # Location postal codes
     "f_T": "30128,25206,31823",                            # Job function IDs
     "f_TPR": "r86400",                                     # Last 24 hours
     "f_WT": "1,3,2",                                       # On-site, Hybrid, Remote
