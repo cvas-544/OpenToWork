@@ -43,11 +43,11 @@ cd "$PROJECT_DIR/dashboard"
 npm run dev > /tmp/opentowork-dashboard.log 2>&1 &
 echo $! > /tmp/opentowork-dashboard.pid
 sleep 3
-echo "  Dashboard up → http://localhost:3000"
+echo "  Dashboard up → http://localhost:3002"
 
 echo ""
 echo "=== All systems go ==="
-echo "  Dashboard:  http://localhost:3000"
+echo "  Dashboard:  http://localhost:3002"
 echo "  API:        http://localhost:8000"
 echo "  API logs:   tail -f /tmp/opentowork-api.log"
 echo "  Dash logs:  tail -f /tmp/opentowork-dashboard.log"
