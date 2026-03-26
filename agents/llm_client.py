@@ -40,6 +40,15 @@ def _strip_think_tags(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
+def _strip_fences(text: str) -> str:
+    """Strip markdown code fences (```json ... ``` or ``` ... ```) from any LLM response."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text)
+    return text.strip()
+
+
 def _call_ollama(model: str, prompt: str, max_tokens: int) -> str:
     """Call Ollama REST API and return response text."""
     url = f"{OLLAMA_BASE_URL}/api/generate"
@@ -87,7 +96,7 @@ def call_llm(prompt: str, model: str, max_tokens: int, agent_name: str = None) -
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
+        return _strip_fences(response.content[0].text)
 
     except anthropic.RateLimitError as e:
         print(f"[LLM] Claude rate limit hit — falling back to Ollama. ({e})")
@@ -105,6 +114,6 @@ def call_llm(prompt: str, model: str, max_tokens: int, agent_name: str = None) -
     print(f"[LLM] Ollama fallback → {ollama_model}")
 
     try:
-        return _call_ollama(ollama_model, prompt, max_tokens)
+        return _strip_fences(_call_ollama(ollama_model, prompt, max_tokens))
     except Exception as e:
         raise RuntimeError(f"[LLM] Both Claude and Ollama failed: {e}") from e

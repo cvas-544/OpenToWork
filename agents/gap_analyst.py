@@ -59,9 +59,10 @@ For each skill, return a JSON array with objects:
 Return ONLY the JSON array, no other text."""
 
     try:
-        text = call_llm(prompt, model="claude-sonnet-4-6", max_tokens=2000)
+        text = call_llm(prompt, model="claude-sonnet-4-6", max_tokens=6000)
         return json.loads(text)
-    except (json.JSONDecodeError, Exception):
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"[Agent 3] LLM/parse error: {e}")
         return [{"skill": s, "frequency": c, "closure_path": None, "project_mapping": None} for s, c in top_gaps]
 
 
