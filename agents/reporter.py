@@ -10,15 +10,12 @@ import os
 import json
 import requests
 import psycopg2
-import anthropic
 from datetime import datetime, date
+from agents.llm_client import call_llm
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 N8N_WEBHOOK_URL = os.environ.get("N8N_WEBHOOK_URL", "")
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://your-ec2-ip:3000")
-
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
 def load_todays_data() -> dict:
@@ -94,12 +91,7 @@ Write the email body in clean HTML. Include:
 
 Tone: professional, direct, actionable. No filler."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=3000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text
+    return call_llm(prompt, model="claude-sonnet-4-6", max_tokens=3000)
 
 
 def send_via_n8n(subject: str, html_body: str):

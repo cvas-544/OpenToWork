@@ -8,14 +8,11 @@ Output: ranked skill gaps with closure paths, stored in skill_gaps table
 import os
 import json
 import psycopg2
-import anthropic
 from collections import Counter
 from datetime import datetime, date, timedelta
+from agents.llm_client import call_llm
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # Projects to map gaps against
 YOUR_PROJECTS = [
@@ -61,13 +58,9 @@ For each skill, return a JSON array with objects:
 
 Return ONLY the JSON array, no other text."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}],
-    )
     try:
-        return json.loads(response.content[0].text)
+        text = call_llm(prompt, model="claude-sonnet-4-6", max_tokens=2000)
+        return json.loads(text)
     except (json.JSONDecodeError, Exception):
         return [{"skill": s, "frequency": c, "closure_path": None, "project_mapping": None} for s, c in top_gaps]
 

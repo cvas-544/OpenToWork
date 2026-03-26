@@ -11,16 +11,14 @@ import re
 import json
 import shutil
 import psycopg2
-import anthropic
 from pathlib import Path
 from dotenv import load_dotenv
+from agents.llm_client import call_llm
 
 load_dotenv()
 
 BASE_CV_DIR = Path("/Users/vasuchukka/Desktop/job/Base")
 OUTPUT_BASE_DIR = Path("/Users/vasuchukka/Desktop/job")
-
-client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 
 def fetch_job(job_id: int) -> dict:
@@ -96,12 +94,7 @@ CV LaTeX (skills section):
 Return ONLY valid JSON, no explanation:
 {{"skills_to_add": ["skill1", "skill2"], "skills_to_remove": ["every", "skill", "in", "cv"]}}"""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = response.content[0].text.strip()
+    text = call_llm(prompt, model="claude-sonnet-4-6", max_tokens=2000, agent_name="cv_tailor")
     start = text.find("{")
     end = text.rfind("}") + 1
     return json.loads(text[start:end])
@@ -134,12 +127,7 @@ JOB DESCRIPTION (excerpt):
 BASE CV LaTeX:
 {cv_tex}"""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=16000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text.strip()
+    return call_llm(prompt, model="claude-sonnet-4-6", max_tokens=16000, agent_name="cv_tailor")
 
 
 def generate_cover_letter(job: dict) -> str:
@@ -166,12 +154,7 @@ JOB DESCRIPTION (excerpt):
 
 Return ONLY the complete LaTeX document — no explanation, no markdown fences."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text.strip()
+    return call_llm(prompt, model="claude-sonnet-4-6", max_tokens=2000, agent_name="cv_tailor")
 
 
 def copy_assets(output_dir: Path):

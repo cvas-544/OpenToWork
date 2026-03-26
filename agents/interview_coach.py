@@ -8,14 +8,11 @@ Output: 10 technical Qs, STAR frameworks, culture Q&A, questions to ask — stor
 import os
 import json
 import psycopg2
-import anthropic
 from datetime import datetime
+from agents.llm_client import call_llm
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 TOP_MATCH_THRESHOLD = 80
-
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
 def generate_prep(job: dict) -> dict:
@@ -51,13 +48,9 @@ Return ONLY valid JSON with this structure:
 
 Generate exactly 10 questions (mix of difficulties). Include 3 culture Q&A pairs and 5 questions to ask the interviewer."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4000,
-        messages=[{"role": "user", "content": prompt}],
-    )
     try:
-        return json.loads(response.content[0].text)
+        text = call_llm(prompt, model="claude-sonnet-4-6", max_tokens=4000)
+        return json.loads(text)
     except json.JSONDecodeError:
         return {"questions": [], "culture_qa": [], "questions_to_ask": []}
 

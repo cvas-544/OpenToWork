@@ -8,17 +8,15 @@ Output: jobs scored >= 60, each with score, matched_skills, missing_skills, fit_
 import os
 import json
 import psycopg2
-import anthropic
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+from agents.llm_client import call_llm
 
 load_dotenv()
 
 CV_PATH = Path(__file__).parent.parent / "data" / "cv.txt"
 SCORE_THRESHOLD = 60
-
-client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 
 def load_cv() -> str:
@@ -72,13 +70,8 @@ Scoring guide:
 - 40-59: Partial match, significant gaps
 - 0-39: Poor fit"""
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=512,
-        messages=[{"role": "user", "content": prompt}],
-    )
     try:
-        text = response.content[0].text.strip()
+        text = call_llm(prompt, model="claude-haiku-4-5-20251001", max_tokens=512)
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
