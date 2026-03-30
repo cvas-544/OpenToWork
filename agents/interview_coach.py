@@ -1,7 +1,7 @@
 """
 Agent 4 — Interview Coach
 Model: claude-sonnet-4-6 (high-quality generation)
-Trigger: only for jobs scoring >= 80
+Trigger: only for jobs where application status = 'Interview'
 Output: 10 technical Qs, STAR frameworks, culture Q&A, questions to ask — stored in interview_prep
 """
 
@@ -12,7 +12,6 @@ from datetime import datetime
 from agents.llm_client import call_llm
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-TOP_MATCH_THRESHOLD = 80
 
 
 def generate_prep(job: dict) -> dict:
@@ -77,15 +76,17 @@ def save_prep(job_id: int, prep: dict):
     conn.close()
 
 
-def fetch_top_jobs() -> list[dict]:
+def fetch_interview_jobs() -> list[dict]:
+    """Fetch jobs where application status has been set to 'Interview' and no prep exists yet."""
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     cur.execute(
-        """SELECT id, title, company, location, description, score, matched_skills, missing_skills
-           FROM job_listings WHERE score >= %s AND DATE(scraped_at) = CURRENT_DATE
-           AND id NOT IN (SELECT job_id FROM interview_prep)
-           ORDER BY score DESC""",
-        (TOP_MATCH_THRESHOLD,),
+        """SELECT jl.id, jl.title, jl.company, jl.location, jl.description, jl.score, jl.matched_skills, jl.missing_skills
+           FROM job_listings jl
+           JOIN applications a ON a.job_id = jl.id
+           WHERE a.status = 'Interview'
+           AND jl.id NOT IN (SELECT job_id FROM interview_prep)
+           ORDER BY jl.score DESC"""
     )
     rows = cur.fetchall()
     cur.close()
@@ -98,8 +99,8 @@ def fetch_top_jobs() -> list[dict]:
 
 
 def run() -> list[dict]:
-    jobs = fetch_top_jobs()
-    print(f"[Agent 4] Generating interview prep for {len(jobs)} top matches (score >= {TOP_MATCH_THRESHOLD})")
+    jobs = fetch_interview_jobs()
+    print(f"[Agent 4] Generating interview prep for {len(jobs)} jobs with status 'Interview'")
 
     results = []
     for job in jobs:
