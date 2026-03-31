@@ -1,15 +1,14 @@
 """
 Agent 3 — Gap Analyst
 Model: claude-sonnet-4-6 (complex reasoning)
-Input: all scored jobs from Agent 2
-Output: ranked skill gaps with closure paths, stored in skill_gaps table
+Input: all scored jobs (all time) from DB
+Output: global per-skill gap table with project integration guidance or course suggestions
 """
 
 import os
 import json
 import psycopg2
 from collections import Counter
-from datetime import datetime, date, timedelta
 from agents.llm_client import call_llm
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -24,11 +23,6 @@ YOUR_PROJECTS = [
 ]
 
 
-def get_week_start() -> date:
-    today = date.today()
-    return today - timedelta(days=today.weekday())
-
-
 def aggregate_gaps(jobs: list[dict]) -> list[tuple[str, int]]:
     all_missing = []
     for job in jobs:
@@ -40,20 +34,26 @@ def analyze_gaps(top_gaps: list[tuple[str, int]]) -> list[dict]:
     gap_list = "\n".join(f"- {skill} (needed by {count} jobs)" for skill, count in top_gaps)
     projects_text = "\n".join(f"- {p}" for p in YOUR_PROJECTS)
 
-    prompt = f"""You are a career development strategist. Analyze these skill gaps for a senior Python/AI engineer job hunting in Munich.
+    prompt = f"""You are a career development strategist for Vasu Chukka, a senior Python/AI engineer job hunting in Munich.
 
-Top missing skills (from today's job scan):
+Top missing skills (cumulative across all scanned jobs):
 {gap_list}
 
 Candidate's existing projects:
 {projects_text}
 
-For each skill, return a JSON array with objects:
+For each skill, decide:
+1. If the skill CAN be added to one of the existing projects → set project_mapping to the project name, how_to_implement to a specific 1-2 sentence implementation plan (what to build/add), online_course and example_project to null.
+2. If NO existing project is a natural fit → set project_mapping and how_to_implement to null, online_course to the best free/paid course or certification (name + platform + rough hours), example_project to a small standalone project Vasu can build in 1-2 weeks to demonstrate the skill.
+
+Return a JSON array, one object per skill:
 {{
   "skill": "...",
   "frequency": <int>,
-  "closure_path": "<fastest realistic way to demonstrate this skill in 1-2 weeks>",
-  "project_mapping": "<which existing project can be extended to showcase this, or null>"
+  "project_mapping": "<project name or null>",
+  "how_to_implement": "<specific implementation plan for that project, or null>",
+  "online_course": "<course/cert name, platform, hours — or null>",
+  "example_project": "<small project to build if no existing project fits — or null>"
 }}
 
 Return ONLY the JSON array, no other text."""
@@ -63,24 +63,30 @@ Return ONLY the JSON array, no other text."""
         return json.loads(text)
     except (json.JSONDecodeError, Exception) as e:
         print(f"[Agent 3] LLM/parse error: {e}")
-        return [{"skill": s, "frequency": c, "closure_path": None, "project_mapping": None} for s, c in top_gaps]
+        return [{"skill": s, "frequency": c, "project_mapping": None, "how_to_implement": None, "online_course": None, "example_project": None} for s, c in top_gaps]
 
 
 def save_gaps(gap_analyses: list[dict]):
-    week_start = get_week_start()
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     for gap in gap_analyses:
         cur.execute(
             """
-            INSERT INTO skill_gaps (skill, frequency, week_start, closure_path, project_mapping)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (skill, week_start) DO UPDATE SET
+            INSERT INTO skill_gaps (skill, frequency, project_mapping, how_to_implement, online_course, example_project, last_updated)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (skill) DO UPDATE SET
                 frequency = EXCLUDED.frequency,
-                closure_path = EXCLUDED.closure_path,
-                project_mapping = EXCLUDED.project_mapping
+                project_mapping = EXCLUDED.project_mapping,
+                how_to_implement = EXCLUDED.how_to_implement,
+                online_course = EXCLUDED.online_course,
+                example_project = EXCLUDED.example_project,
+                last_updated = NOW()
             """,
-            (gap["skill"], gap["frequency"], week_start, gap.get("closure_path"), gap.get("project_mapping")),
+            (
+                gap["skill"], gap["frequency"],
+                gap.get("project_mapping"), gap.get("how_to_implement"),
+                gap.get("online_course"), gap.get("example_project"),
+            ),
         )
     conn.commit()
     cur.close()
@@ -88,6 +94,7 @@ def save_gaps(gap_analyses: list[dict]):
 
 
 def fetch_jobs_from_db() -> list[dict]:
+    """Fetch all scored jobs — cumulative gap analysis across all time."""
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     cur.execute("SELECT missing_skills FROM job_listings WHERE score >= 60")
