@@ -5,14 +5,16 @@ FastAPI server exposing agent run endpoints + data endpoints for n8n and dashboa
 
 import os
 import json
+import uuid
 import psycopg2
 import psycopg2.extras
 from collections import Counter
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
+from agents.run_logger import RunLogger
 
 load_dotenv()
 
@@ -40,62 +42,93 @@ def health():
 # ── Agent Run Endpoints ───────────────────────────────────────────────────────
 
 @app.post("/run/agent1")
-def run_agent1():
+def run_agent1(run_id: Optional[str] = Query(default=None)):
+    rid = run_id or str(uuid.uuid4())
+    logger = RunLogger(run_id=rid, agent_name="Agent 1 — Job Scraper")
+    logger.start()
     try:
         from agents.job_scraper import run
         result = run()
-        return {"status": "ok", "new_jobs": len(result), "jobs": result}
+        logger.success(jobs_found=len(result))
+        return {"status": "ok", "run_id": rid, "new_jobs": len(result), "jobs": result}
     except Exception as e:
+        logger.fail(error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/run/agent2")
-def run_agent2():
+def run_agent2(run_id: Optional[str] = Query(default=None)):
+    rid = run_id or str(uuid.uuid4())
+    logger = RunLogger(run_id=rid, agent_name="Agent 2 — CV Matcher")
+    logger.start()
     try:
         from agents.cv_matcher import run
         result = run()
-        return {"status": "ok", "result": result}
+        passed = [j for j in result if j.get("score", 0) >= 60]
+        logger.success(jobs_scored=len(result), jobs_passed=len(passed))
+        return {"status": "ok", "run_id": rid, "result": result}
     except Exception as e:
+        logger.fail(error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/run/agent3")
-def run_agent3():
+def run_agent3(run_id: Optional[str] = Query(default=None)):
+    rid = run_id or str(uuid.uuid4())
+    logger = RunLogger(run_id=rid, agent_name="Agent 3 — Gap Analyst")
+    logger.start()
     try:
         from agents.gap_analyst import run
         result = run()
-        return {"status": "ok", "result": result}
+        logger.success(details={"gaps_analyzed": len(result)})
+        return {"status": "ok", "run_id": rid, "result": result}
     except Exception as e:
+        logger.fail(error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/run/agent4")
-def run_agent4():
+def run_agent4(run_id: Optional[str] = Query(default=None)):
+    rid = run_id or str(uuid.uuid4())
+    logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach")
+    logger.start()
     try:
         from agents.interview_coach import run
         result = run()
-        return {"status": "ok", "result": result}
+        logger.success(details={"prep_sets": len(result)})
+        return {"status": "ok", "run_id": rid, "result": result}
     except Exception as e:
+        logger.fail(error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/run/agent5")
-def run_agent5():
+def run_agent5(run_id: Optional[str] = Query(default=None)):
+    rid = run_id or str(uuid.uuid4())
+    logger = RunLogger(run_id=rid, agent_name="Agent 5 — Reporter")
+    logger.start()
     try:
         from agents.reporter import run
         result = run()
-        return {"status": "ok", "result": result}
+        logger.success(details={"email_sent": result.get("email_sent", False)})
+        return {"status": "ok", "run_id": rid, "result": result}
     except Exception as e:
+        logger.fail(error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/run/agent6")
-def run_agent6():
+def run_agent6(run_id: Optional[str] = Query(default=None)):
+    rid = run_id or str(uuid.uuid4())
+    logger = RunLogger(run_id=rid, agent_name="Agent 6 — App Tracker")
+    logger.start()
     try:
         from agents.app_tracker import run
         result = run()
-        return {"status": "ok", "result": result}
+        logger.success(details={"reminders": len(result) if isinstance(result, list) else None})
+        return {"status": "ok", "run_id": rid, "result": result}
     except Exception as e:
+        logger.fail(error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -464,3 +497,41 @@ def get_stats():
         "pipeline": pipeline,
         "last_run": last_run.isoformat() if last_run else None,
     }
+
+
+@app.get("/data/automation-logs")
+def get_automation_logs():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT
+            run_id,
+            MIN(started_at) AS run_started_at,
+            MAX(completed_at) AS run_completed_at,
+            JSON_AGG(
+                JSON_BUILD_OBJECT(
+                    'agent_name', agent_name,
+                    'status', status,
+                    'started_at', started_at,
+                    'completed_at', completed_at,
+                    'jobs_found', jobs_found,
+                    'jobs_scored', jobs_scored,
+                    'jobs_passed', jobs_passed,
+                    'error_message', error_message,
+                    'details', details
+                ) ORDER BY started_at
+            ) AS agents,
+            BOOL_AND(status = 'success') AS all_passed,
+            BOOL_OR(status = 'failed') AS any_failed
+        FROM automation_logs
+        GROUP BY run_id
+        ORDER BY MIN(started_at) DESC
+        LIMIT 50
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    for r in rows:
+        r["run_started_at"] = str(r["run_started_at"]) if r["run_started_at"] else None
+        r["run_completed_at"] = str(r["run_completed_at"]) if r["run_completed_at"] else None
+    return {"runs": rows}

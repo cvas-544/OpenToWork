@@ -125,6 +125,7 @@ const navItems = [
   { id: "timeline", label: "Your Projects", icon: "▭" },
   { id: "interview", label: "Interview Prep", icon: "◇" },
   { id: "analytics", label: "Analytics", icon: "◉" },
+  { id: "automation", label: "Automation Logs", icon: "⟳" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -947,8 +948,11 @@ const SkillGaps = () => {
     fetchDailySkills().then(data => { if (data?.length) setDailySkills(data); });
   }, []);
 
+  const [actionPage, setActionPage] = useState(0);
+  const ACTION_PAGE_SIZE = 6;
+
   const actionCards = gaps
-    ? gaps.slice(0, 6).map(g => ({
+    ? gaps.map(g => ({
         skill: g.skill,
         count: g.frequency,
         action: g.closure_path || "Research and practice this skill",
@@ -959,6 +963,9 @@ const SkillGaps = () => {
         { skill: "Terraform", count: 6, action: "Terraform course on Udemy", project: null },
         { skill: "LangChain", count: 5, action: "Integrate into RAG Chatbot project", project: "RAG Chatbot" },
       ];
+
+  const actionTotalPages = Math.ceil(actionCards.length / ACTION_PAGE_SIZE);
+  const actionPageCards = actionCards.slice(actionPage * ACTION_PAGE_SIZE, (actionPage + 1) * ACTION_PAGE_SIZE);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1046,9 +1053,24 @@ const SkillGaps = () => {
       </div>
 
       <Card style={{ padding: "24px 28px" }}>
-        <Label>Gap → Action Suggestions {gaps && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <Label style={{ marginBottom: 0 }}>Gap → Action Suggestions {gaps && <span style={{ color: T.orange, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>· live</span>}</Label>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 11, color: T.gray600, fontFamily: "'DM Mono', monospace" }}>{actionPage + 1} / {actionTotalPages}</span>
+            <button
+              onClick={() => setActionPage(p => Math.max(0, p - 1))}
+              disabled={actionPage === 0}
+              style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${T.gray200}`, background: actionPage === 0 ? T.gray100 : T.white, cursor: actionPage === 0 ? "default" : "pointer", fontSize: 14, color: actionPage === 0 ? T.gray400 : T.black, display: "flex", alignItems: "center", justifyContent: "center" }}
+            >‹</button>
+            <button
+              onClick={() => setActionPage(p => Math.min(actionTotalPages - 1, p + 1))}
+              disabled={actionPage === actionTotalPages - 1}
+              style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${T.gray200}`, background: actionPage === actionTotalPages - 1 ? T.gray100 : T.white, cursor: actionPage === actionTotalPages - 1 ? "default" : "pointer", fontSize: 14, color: actionPage === actionTotalPages - 1 ? T.gray400 : T.black, display: "flex", alignItems: "center", justifyContent: "center" }}
+            >›</button>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-          {actionCards.map(g => (
+          {actionPageCards.map(g => (
             <div key={g.skill} style={{ padding: "18px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 28, lineHeight: 1, color: T.black }}>{g.skill}</div>
@@ -1644,6 +1666,135 @@ const Analytics = () => (
   </div>
 );
 
+// ─── Automation Logs ──────────────────────────────────────────────────────────
+const AutomationLogs = () => {
+  const { API } = useData();
+  const [runs, setRuns] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API}/data/automation-logs`)
+      .then(r => r.json())
+      .then(d => { setRuns(d.runs || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [API]);
+
+  const fmt = (iso) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  };
+
+  const duration = (start, end) => {
+    if (!start || !end) return null;
+    const s = Math.round((new Date(end) - new Date(start)) / 1000);
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+  };
+
+  const statusDot = (status) => {
+    const map = { success: T.green, failed: T.red, running: T.amber, skipped: T.gray400 };
+    return <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: map[status] || T.gray400, marginRight: 6, flexShrink: 0 }} />;
+  };
+
+  if (loading) return <Card style={{ padding: 32 }}><div style={{ color: T.gray400, fontFamily: "'DM Mono', monospace", fontSize: 12 }}>Loading automation logs...</div></Card>;
+
+  if (!runs.length) return (
+    <Card style={{ padding: 32, textAlign: "center" }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
+      <div style={{ fontFamily: "'Sora', sans-serif", color: T.gray600, fontSize: 13 }}>No automation runs logged yet.</div>
+      <div style={{ fontFamily: "'DM Mono', monospace", color: T.gray400, fontSize: 11, marginTop: 6 }}>Runs will appear here after agents execute via API or n8n.</div>
+    </Card>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {runs.map((run) => {
+        const isOpen = expanded === run.run_id;
+        const anyFailed = run.any_failed;
+        const allPassed = run.all_passed;
+        const runStatus = anyFailed ? "failed" : allPassed ? "success" : "running";
+        const runColor = anyFailed ? T.red : allPassed ? T.green : T.amber;
+        const runBg = anyFailed ? T.redLight : allPassed ? T.greenLight : T.amberLight;
+        const agents = Array.isArray(run.agents) ? run.agents : [];
+
+        return (
+          <Card key={run.run_id} style={{ padding: 0, overflow: "hidden" }}>
+            {/* Run header */}
+            <button
+              onClick={() => setExpanded(isOpen ? null : run.run_id)}
+              style={{ width: "100%", padding: "16px 20px", display: "flex", alignItems: "center", gap: 14, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+            >
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: runColor, flexShrink: 0, boxShadow: `0 0 6px ${runColor}88` }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 18, color: T.black, letterSpacing: 1 }}>
+                    {fmt(run.run_started_at)}
+                  </span>
+                  <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 700, background: runBg, color: runColor, textTransform: "uppercase" }}>
+                    {runStatus}
+                  </span>
+                  {duration(run.run_started_at, run.run_completed_at) && (
+                    <span style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>
+                      {duration(run.run_started_at, run.run_completed_at)}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                  {agents.map((a, i) => (
+                    <span key={i} style={{ display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 20, fontSize: 10, fontFamily: "'DM Mono', monospace", background: a.status === "success" ? T.greenLight : a.status === "failed" ? T.redLight : T.amberLight, color: a.status === "success" ? T.green : a.status === "failed" ? T.red : T.amber }}>
+                      {statusDot(a.status)}
+                      {a.agent_name.split("—")[0].trim()}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: T.gray400, flexShrink: 0, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▼</div>
+            </button>
+
+            {/* Expanded agent details */}
+            {isOpen && (
+              <div style={{ borderTop: `1px solid ${T.gray200}`, padding: "0 20px 16px" }}>
+                {agents.map((a, i) => (
+                  <div key={i} style={{ paddingTop: 14, borderBottom: i < agents.length - 1 ? `1px solid ${T.gray100}` : "none", paddingBottom: 14 }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <div style={{ paddingTop: 2 }}>{statusDot(a.status)}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 13, color: T.black }}>{a.agent_name}</span>
+                          <span style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>
+                            {fmt(a.started_at)}{a.completed_at ? ` → ${duration(a.started_at, a.completed_at)}` : ""}
+                          </span>
+                        </div>
+                        {/* Stats row */}
+                        <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap" }}>
+                          {a.jobs_found != null && <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray600 }}>📥 {a.jobs_found} scraped</span>}
+                          {a.jobs_scored != null && <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray600 }}>🔍 {a.jobs_scored} scored</span>}
+                          {a.jobs_passed != null && <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray600 }}>✅ {a.jobs_passed} passed</span>}
+                          {a.details && Object.entries(typeof a.details === "string" ? JSON.parse(a.details) : a.details).map(([k, v]) => (
+                            <span key={k} style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray600 }}>{k}: {String(v)}</span>
+                          ))}
+                        </div>
+                        {/* Error */}
+                        {a.error_message && (
+                          <div style={{ marginTop: 8, padding: "8px 12px", background: T.redLight, borderRadius: 8, border: `1px solid ${T.red}22` }}>
+                            <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 700, color: T.red, marginBottom: 2 }}>ERROR</div>
+                            <div style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.red, lineHeight: 1.5, wordBreak: "break-word" }}>{a.error_message}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+};
+
 // ─── Profile ──────────────────────────────────────────────────────────────────
 const ProfileView = () => {
   const [skills, setSkills] = useState([]);
@@ -1815,25 +1966,6 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
           </button>
         ))}
 
-        {!collapsed && (
-          <>
-            <div style={{ fontSize: 9, color: T.gray400, letterSpacing: "0.12em", textTransform: "uppercase", padding: "16px 8px 10px", fontFamily: "'DM Mono', monospace" }}>Recent Reports</div>
-            {history.map((h, i) => (
-              <button key={i} style={{
-                width: "100%", display: "flex", flexDirection: "column", alignItems: "flex-start",
-                padding: "7px 12px", borderRadius: 8, cursor: "pointer", marginBottom: 2,
-                background: "transparent", border: "1px solid transparent",
-                transition: "all 0.15s", textAlign: "left",
-              }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.gray100; e.currentTarget.style.borderColor = T.gray200; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}
-              >
-                <span style={{ fontSize: 11, color: T.gray600, fontFamily: "'Sora', sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{h.label}</span>
-                <span style={{ fontSize: 9, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 1 }}>{h.time}</span>
-              </button>
-            ))}
-          </>
-        )}
       </div>
 
       {/* User — click to open Profile */}
@@ -1896,6 +2028,7 @@ export default function App() {
     if (active === "timeline") return <YourProjects />;
     if (active === "interview") return <InterviewPrepView />;
     if (active === "analytics") return <Analytics />;
+    if (active === "automation") return <AutomationLogs />;
     if (active === "profile") return <ProfileView />;
   };
 
