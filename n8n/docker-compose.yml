@@ -18,6 +18,8 @@ services:
       - SERP_API_KEY=${SERP_API_KEY}
       - N8N_SECURE_COOKIE=false
       - NODES_EXCLUDE=[]
+      - EXECUTIONS_TIMEOUT=1800
+      - EXECUTIONS_TIMEOUT_MAX=3600
     volumes:
       - n8n_data:/home/node/.n8n
       - ./workflows:/home/node/workflows

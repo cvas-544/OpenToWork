@@ -21,7 +21,7 @@
       "parameters": {
         "method": "POST",
         "url": "http://agents:8000/run/agent1",
-        "options": { "timeout": 120000 }
+        "options": { "timeout": 600000 }
       },
       "id": "agent1",
       "name": "Agent 1 — Job Scraper",
@@ -33,7 +33,7 @@
       "parameters": {
         "method": "POST",
         "url": "http://agents:8000/run/agent2",
-        "options": { "timeout": 300000 }
+        "options": { "timeout": 1800000 }
       },
       "id": "agent2",
       "name": "Agent 2 — CV Matcher",
@@ -45,7 +45,7 @@
       "parameters": {
         "method": "POST",
         "url": "http://agents:8000/run/agent3",
-        "options": { "timeout": 120000 }
+        "options": { "timeout": 600000 }
       },
       "id": "agent3",
       "name": "Agent 3 — Gap Analyst",
@@ -77,7 +77,7 @@
       "parameters": {
         "method": "POST",
         "url": "http://agents:8000/run/agent5",
-        "options": { "timeout": 120000 }
+        "options": { "timeout": 600000 }
       },
       "id": "agent5",
       "name": "Agent 5 — Reporter",
