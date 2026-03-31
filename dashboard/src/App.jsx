@@ -2018,7 +2018,8 @@ export default function App() {
     });
   }, []);
 
-  const ctxValue = { jobs, trendData: liveTrend, pipeline: livePipeline, stats: liveStats };
+  const API = import.meta.env.VITE_API_URL || "http://16.170.177.86:8000";
+  const ctxValue = { jobs, trendData: liveTrend, pipeline: livePipeline, stats: liveStats, API };
 
   const renderPage = () => {
     if (active === "overview") return <Overview />;
