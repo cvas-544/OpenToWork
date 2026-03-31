@@ -59,24 +59,6 @@
         "url": "http://agents:8000/run/agent4",
         "options": { "timeout": 300000 }
       },
-      "id": "agent4",
-      "name": "Agent 4 — Interview Coach",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [880, 300]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://agents:8000/run/agent5",
-        "options": { "timeout": 120000 }
-      },
-      "id": "agent5",
-      "name": "Agent 5 — Reporter",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1100, 300]
-    },
     {
       "parameters": {
         "rule": {
@@ -94,6 +76,18 @@
     {
       "parameters": {
         "method": "POST",
+        "url": "http://agents:8000/run/agent5",
+        "options": { "timeout": 120000 }
+      },
+      "id": "agent5",
+      "name": "Agent 5 — Reporter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
         "url": "http://agents:8000/run/agent6",
         "options": { "timeout": 60000 }
       },
@@ -101,7 +95,7 @@
       "name": "Agent 6 — App Tracker (Follow-ups)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [220, 500]
+      "position": [440, 500]
     }
   ],
   "connections": {
@@ -114,13 +108,10 @@
     "Agent 2 — CV Matcher": {
       "main": [[{ "node": "Agent 3 — Gap Analyst", "type": "main", "index": 0 }]]
     },
-    "Agent 3 — Gap Analyst": {
-      "main": [[{ "node": "Agent 4 — Interview Coach", "type": "main", "index": 0 }]]
-    },
-    "Agent 4 — Interview Coach": {
+    "Schedule — Weekly (Sun 9am)": {
       "main": [[{ "node": "Agent 5 — Reporter", "type": "main", "index": 0 }]]
     },
-    "Schedule — Weekly (Sun 9am)": {
+    "Agent 5 — Reporter": {
       "main": [[{ "node": "Agent 6 — App Tracker (Follow-ups)", "type": "main", "index": 0 }]]
     }
   },
