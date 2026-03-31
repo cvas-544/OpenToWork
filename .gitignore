@@ -35,3 +35,4 @@ Thumbs.db
 
 # n8n local data (if running locally)
 n8n/.n8n/
+reports/weekly/*.html

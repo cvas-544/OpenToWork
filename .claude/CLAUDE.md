@@ -241,35 +241,55 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ### Completed ✅
 - Pre-requisite #20: AWS IAM key rotated
 - #1: n8n Docker setup on EC2 — running on 16.170.177.86:5678
-- #2: PostgreSQL schema — 6 tables on RDS (job_listings, skill_gaps, interview_prep, report_log, applications, user_profile)
+- #2: PostgreSQL schema — 6 tables on RDS
 - #3: Agent 1 Job Scraper — FastAPI + n8n workflow live
 - #22: Dashboard live data — api.py fixed, live jobs showing
-- #4: Agent 2 deployed + working — scoring pipeline live
+- #4: Agent 2 CV Matcher — scoring pipeline live (Claude Haiku + Ollama fallback)
 - #24: Profile tab — DB-backed skills (39 from CV), add/remove UI
-- Jobs Board: filters (location dynamic dropdown, date, score), resizable panel, Apply button
-- Arbeitsagentur SSR: descriptions + externeURL via ng-state JSON
-- SerpAPI → replaced entirely with Apify `curious_coder/linkedin-jobs-scraper`
-- LinkedIn filters: Associate + Mid-Senior, Full-time, Germany, last 24h, hybrid/remote/on-site
-- Keywords trimmed: `["AI Engineer", "ML Engineer", "Machine Learning"]`
-- n8n schedule triggers activated: 8am, noon, 8pm daily
-- job_listings table truncated — fresh start for tomorrow's run
+- Jobs Board: filters, resizable panel, Apply button, Arbeitsagentur SSR descriptions
+- Apify `curious_coder/linkedin-jobs-scraper` replacing SerpAPI
+- n8n schedule triggers: 8am, noon, 8pm daily (Mon–Fri)
+- Agent 3 Gap Analyst: /data/gaps, /data/radar, /data/skills-daily endpoints live
+- Skill Gaps tab: All Skills pill grid + Skills Radar (live) + carousel (6 per page, 20 total)
+- Radar chart fixed: uses matched_skills + user_profile fallback, top 18 skills, fillOpacity 0.45
+- Map bubbles + score circles: Midnight Shadow / Orange color scheme
+- **Agent 7 CV Tailor**: preview modal (add/remove skills) → Claude Sonnet → cv.tex + cover_letter.tex
+- **Ollama fallback**: `agents/llm_client.py` — Claude primary, llama3 fallback (Agents 2-5), deepseek-r1:8b for Agent 7
+- **Automation Logs tab**: `automation_logs` DB table + RunLogger + dashboard tab (replaces Recent Reports)
+- **Agent 4 trigger**: fires on Interview status change only (not score threshold)
+- **Agent 5 Reporter**: weekly Sunday digest (not daily), saves report to `reports/weekly/`
+- **n8n pipeline updated**: Schedule → Agent1 → Agent2 → Agent3 | Sunday → Agent5 → Agent6
+- **n8n timeouts fixed**: EXECUTIONS_TIMEOUT=1800, Agent2=30min, others=10min
+- `scripts/ec2-restart-n8n.sh` — SSH pull + docker compose restart
 
-### Session 1 — Next Up 🔜
-- EC2 rebuild: `cd ~/OpenToWork && git pull && cd ~/n8n && docker compose build --no-cache && docker compose up -d --force-recreate`
-- Wait for 8am auto-run → check n8n Executions tab
-- Verify Apify LinkedIn returns jobs (#25) → close if confirmed
-- Verify Agent 1 → Agent 2 pipeline end-to-end (#5) → close if confirmed
+### Agent Architecture (current)
+| Agent | Trigger | Model | Notes |
+|---|---|---|---|
+| 1 — Job Scraper | n8n 8am/noon/8pm | — | Arbeitsagentur + Apify LinkedIn |
+| 2 — CV Matcher | After Agent 1 | Haiku → llama3 | All unscored jobs |
+| 3 — Gap Analyst | After Agent 2 | Sonnet → llama3 | Weekly gaps, 6000 max_tokens |
+| 4 — Interview Coach | Status → Interview | Sonnet → llama3 | On-demand only |
+| 5 — Reporter | Sunday 9am | Sonnet → llama3 | Weekly digest → reports/weekly/ |
+| 6 — App Tracker | Sunday 9am (after 5) | — | Follow-up reminders |
+| 7 — CV Tailor | Manual (local only) | Sonnet → deepseek-r1:8b | LaTeX output |
 
-### Session 2 — Pending
-- #6–10: Agents 3-6 + n8n wiring
+### CV Tailor — Local Only (not on EC2)
+- `agents/cv_tailor.py` — Agent 7 (preview_changes + tailor_cv + generate_cover_letter)
+- `server/api.py` — POST /cv/tailor/preview · POST /cv/tailor · GET /cv/tailored/{job_id}
+- Base CV: `/Users/vasuchukka/Desktop/job/Base/main.tex`
+- Output: `/Users/vasuchukka/Desktop/job/{Company}-{Title}/`
+- Dashboard: `.env.local` → `VITE_API_URL=http://localhost:8000`
+- Run locally: `venv/bin/uvicorn server.api:app --reload --port 8000`
+- Overleaf: compile with **XeLaTeX** (fontspec requires it)
 
-### Session 3 — Pending
-- #11–14: React dashboard Phase 1
-
-### Session 4 — Pending
-- #15–19: Dashboard Phase 2 + Deploy
+### Local Dev
+- Dashboard: http://localhost:3002
+- API: http://localhost:8000
+- Start: `bash scripts/start-local.sh`
+- Stop: `bash scripts/stop-local.sh`
+- EC2 restart: `bash scripts/ec2-restart-n8n.sh`
 
 ---
 
 ## Last Updated
-2026-03-10 — n8n workflow published: Schedule Trigger (8am/noon/8pm) → Agent 1 → Agent 2 chain live. APIFY_TOKEN added to EC2 .env. EC2 rebuild still pending. job_listings truncated (fresh start). Next session: EC2 rebuild → verify 8am auto-run → close #25 + #5.
+2026-03-31 — Ollama fallback live. Automation Logs tab added. Agent 4 now triggers on Interview status only. Agent 5 switched to weekly Sunday digest + saves to reports/weekly/. n8n timeouts fixed (was cancelling at 5min). ec2-restart-n8n.sh script added.

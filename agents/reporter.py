@@ -2,20 +2,19 @@
 Agent 5 — Reporter
 Trigger: Every Sunday via n8n schedule (weekly digest)
 Model: claude-sonnet-4-6 for synthesis
-Sends structured weekly digest via Gmail (n8n Gmail node webhook)
+Saves weekly HTML report to reports/weekly/ folder
 Logs report metadata to report_log table
 """
 
 import os
 import json
-import requests
 import psycopg2
+from pathlib import Path
 from datetime import datetime, date, timedelta
 from agents.llm_client import call_llm
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-N8N_WEBHOOK_URL = os.environ.get("N8N_WEBHOOK_URL", "")
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://your-ec2-ip:3000")
+REPORTS_DIR = Path(__file__).parent.parent / "reports" / "weekly"
 
 
 def load_weeks_data() -> dict:
@@ -144,18 +143,12 @@ Tone: professional, direct, motivating. No filler."""
     return call_llm(prompt, model="claude-sonnet-4-6", max_tokens=3000)
 
 
-def send_via_n8n(subject: str, html_body: str):
-    if not N8N_WEBHOOK_URL:
-        print("[Agent 5] No N8N_WEBHOOK_URL set — skipping email send")
-        return False
-    payload = {"subject": subject, "html": html_body, "to": "vasuchukka6118@gmail.com"}
-    try:
-        resp = requests.post(f"{N8N_WEBHOOK_URL}/webhook/send-report", json=payload, timeout=15)
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        print(f"[Agent 5] Failed to send via n8n: {e}")
-        return False
+def save_report_file(filename: str, html_body: str) -> str:
+    """Save HTML report to reports/weekly/ and return the file path."""
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    path = REPORTS_DIR / filename
+    path.write_text(html_body, encoding="utf-8")
+    return str(path)
 
 
 def log_report(data: dict, email_sent: bool, summary: str):
@@ -192,12 +185,17 @@ def run():
     html_body = synthesize_email(data)
 
     top_count = len([j for j in data["top_jobs"] if j["score"] >= 80])
-    subject = f"Weekly Job Digest | {data['week_start']} – {data['week_end']} | {data['total_found']} scraped, {top_count} strong matches"
+    filename = f"week-{date.today().strftime('%Y-%m-%d')}.html"
+    saved_path = save_report_file(filename, html_body)
 
-    sent = send_via_n8n(subject, html_body)
-    log_report(data, sent, html_body[:500])
-    print(f"[Agent 5] Done. Email sent: {sent}")
-    return {"subject": subject, "sent": sent, "jobs_found": data["total_found"], "email_sent": sent}
+    log_report(data, True, html_body[:500])
+    print(f"[Agent 5] Done. Report saved → {saved_path}")
+    return {
+        "jobs_found": data["total_found"],
+        "top_matches": top_count,
+        "report_path": saved_path,
+        "week": f"{data['week_start']} – {data['week_end']}",
+    }
 
 
 if __name__ == "__main__":
