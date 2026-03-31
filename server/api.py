@@ -415,6 +415,24 @@ def update_application_status(job_id: int, body: StatusBody):
         result = update_status(job_id, body.status, body.notes)
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
+
+        # Auto-trigger Agent 4 when status is set to Interview
+        if body.status.lower() == "interview":
+            import threading
+            def run_agent4_async():
+                try:
+                    rid = str(uuid.uuid4())
+                    logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach")
+                    logger.start()
+                    from agents.interview_coach import run
+                    prep = run()
+                    logger.success(details={"prep_sets": len(prep)})
+                    print(f"[API] Agent 4 triggered for job {job_id} — {len(prep)} prep set(s) generated")
+                except Exception as e:
+                    print(f"[API] Agent 4 failed for job {job_id}: {e}")
+            threading.Thread(target=run_agent4_async, daemon=True).start()
+            result["interview_prep"] = "generating"
+
         return result
     except HTTPException:
         raise
