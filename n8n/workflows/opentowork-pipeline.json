@@ -21,6 +21,10 @@
       "parameters": {
         "method": "POST",
         "url": "http://agents:8000/run/agent1",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "run_id", "value": "={{ $execution.id }}" }]
+        },
         "options": { "timeout": 600000 }
       },
       "id": "agent1",
@@ -33,6 +37,10 @@
       "parameters": {
         "method": "POST",
         "url": "http://agents:8000/run/agent2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "run_id", "value": "={{ $execution.id }}" }]
+        },
         "options": { "timeout": 1800000 }
       },
       "id": "agent2",
@@ -45,6 +53,10 @@
       "parameters": {
         "method": "POST",
         "url": "http://agents:8000/run/agent3",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "run_id", "value": "={{ $execution.id }}" }]
+        },
         "options": { "timeout": 600000 }
       },
       "id": "agent3",
@@ -59,6 +71,12 @@
         "url": "http://agents:8000/run/agent4",
         "options": { "timeout": 300000 }
       },
+      "id": "agent4",
+      "name": "Agent 4 — Interview Coach",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300]
+    },
     {
       "parameters": {
         "rule": {

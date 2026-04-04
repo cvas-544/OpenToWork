@@ -366,16 +366,17 @@ def get_gaps():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT skill, frequency, week_start, closure_path, project_mapping
+        SELECT skill, frequency, project_mapping, how_to_implement, online_course, example_project, last_updated
         FROM skill_gaps
-        ORDER BY week_start DESC, frequency DESC
+        ORDER BY frequency DESC
         LIMIT 50
     """)
     gaps = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
     for g in gaps:
-        g["week_start"] = str(g["week_start"])
+        if g.get("last_updated"):
+            g["last_updated"] = str(g["last_updated"])
     return {"gaps": gaps}
 
 

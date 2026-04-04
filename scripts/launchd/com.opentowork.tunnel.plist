@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.opentowork.tunnel</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/ssh</string>
+        <string>-i</string>
+        <string>/Users/vasuchukka/FinsenseKey.pem</string>
+        <string>-L</string>
+        <string>15432:finsense-db.cric6akgujm3.eu-north-1.rds.amazonaws.com:5432</string>
+        <string>ubuntu@16.170.177.86</string>
+        <string>-N</string>
+        <string>-o</string>
+        <string>StrictHostKeyChecking=no</string>
+        <string>-o</string>
+        <string>ExitOnForwardFailure=yes</string>
+        <string>-o</string>
+        <string>ServerAliveInterval=60</string>
+        <string>-o</string>
+        <string>ServerAliveCountMax=3</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/opentowork-tunnel.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/opentowork-tunnel.log</string>
+</dict>
+</plist>

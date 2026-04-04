@@ -35,6 +35,33 @@ const T = {
   midnightShadow: "#050505",
 };
 
+// ─── Empty State ──────────────────────────────────────────────────────────────
+const EmptyState = ({ message = "No data found", sub = "" }) => (
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "64px 32px", gap: 10, opacity: 0.5 }}>
+    <div style={{ fontSize: 28 }}>◌</div>
+    <div style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif" }}>{message}</div>
+    {sub && <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>{sub}</div>}
+  </div>
+);
+
+// ─── Connection Banner ─────────────────────────────────────────────────────────
+const ConnectionBanner = () => {
+  const { apiStatus } = useData();
+  if (apiStatus === "ok" || apiStatus === "loading") return null;
+  return (
+    <div style={{
+      background: "rgba(220,53,69,0.08)", border: "1px solid rgba(220,53,69,0.2)",
+      borderRadius: 10, padding: "10px 16px", marginBottom: 16,
+      display: "flex", alignItems: "center", gap: 10,
+    }}>
+      <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#dc3545", flexShrink: 0 }} />
+      <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: "#dc3545" }}>
+        API unreachable — DB connection may be lost. Check SSH tunnel + FastAPI.
+      </div>
+    </div>
+  );
+};
+
 // ─── Data ─────────────────────────────────────────────────────────────────────
 const jobsData = [
   { id: 1, title: "AI Engineer", company: "Allianz", location: "Munich", score: 94, status: "new", remote: false, lat: 48.13, lng: 11.58, missing: ["Terraform"], matched: ["Python","Claude API","AWS"], date: "Today", url: "https://www.linkedin.com" },
@@ -280,6 +307,7 @@ const Overview = () => {
           ))}
         </div>
       </div>
+      {topMatches.length === 0 && <EmptyState message="No top matches yet" sub="Run the pipeline to score jobs" />}
       <div style={{ overflow: "hidden" }}>
         <div style={{
           display: "flex", gap: 12,
@@ -339,6 +367,7 @@ const JobsBoard = () => {
   const [sortOrder, setSortOrder] = useState("newest");
   const [statusFilter, setStatusFilter] = useState("all");
   const [statusMap, setStatusMap] = useState({});
+  const [searchQuery, setSearchQuery] = useState("");
   const [tailoring, setTailoring] = useState(false);
   const [tailored, setTailored] = useState({});
   const [includeCoverLetter, setIncludeCoverLetter] = useState(true);
@@ -409,6 +438,7 @@ const JobsBoard = () => {
     else if (scoreFilter === "scored") { if (!score) return false; }
     else if (scoreFilter === "unscored") { if (score) return false; }
     if (statusFilter !== "all" && effectiveStatus(j) !== statusFilter) return false;
+    if (searchQuery && !j.title?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   }).sort((a, b) => {
     const aD = new Date(a.date_posted || 0);
@@ -453,7 +483,24 @@ const JobsBoard = () => {
 
   return (
     <>
-    <div style={{ display: "flex", gap: 14, height: "calc(100vh - 140px)" }}>
+    <div style={{ marginBottom: 12 }}>
+      <input
+        type="text"
+        placeholder="Search job titles…"
+        value={searchQuery}
+        onChange={e => setSearchQuery(e.target.value)}
+        style={{
+          width: "100%", boxSizing: "border-box",
+          padding: "10px 18px", borderRadius: 12,
+          border: `1px solid ${T.gray200}`,
+          background: "rgba(255,255,255,0.8)",
+          fontFamily: "'Sora', sans-serif", fontSize: 13,
+          color: T.black, outline: "none",
+          backdropFilter: "blur(8px)",
+        }}
+      />
+    </div>
+    <div style={{ display: "flex", gap: 14, height: "calc(100vh - 180px)" }}>
       <Card style={{ flex: 1, padding: "24px", overflow: "auto" }}>
         {/* Single filter row */}
         <div style={{ display: "flex", gap: 8, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
@@ -494,6 +541,12 @@ const JobsBoard = () => {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filtered.length === 0 && (
+            <EmptyState
+              message={jobs.length === 0 ? "No jobs found" : "No jobs match your filters"}
+              sub={jobs.length === 0 ? "Run Agent 1 to scrape jobs, or check DB connection" : "Try clearing your filters"}
+            />
+          )}
           {filtered.map(j => (
             <div key={j.id} onClick={() => setSelected(j)} style={{
               display: "flex", alignItems: "center", gap: 16, padding: "14px 18px",
@@ -955,13 +1008,15 @@ const SkillGaps = () => {
     ? gaps.map(g => ({
         skill: g.skill,
         count: g.frequency,
-        action: g.closure_path || "Research and practice this skill",
         project: g.project_mapping || null,
+        howTo: g.how_to_implement || null,
+        course: g.online_course || null,
+        exampleProject: g.example_project || null,
       }))
     : [
-        { skill: "Kubernetes", count: 8, action: "Add K8s deployment to FinSense AI", project: "FinSense AI" },
-        { skill: "Terraform", count: 6, action: "Terraform course on Udemy", project: null },
-        { skill: "LangChain", count: 5, action: "Integrate into RAG Chatbot project", project: "RAG Chatbot" },
+        { skill: "Kubernetes", count: 8, project: "FinsenseAI", howTo: "Add K8s Deployment + Service manifests to deploy the FastAPI app", course: null, exampleProject: null },
+        { skill: "Terraform", count: 6, project: null, howTo: null, course: "HashiCorp Terraform Associate — Udemy (~12h)", exampleProject: "Provision EC2 + RDS on AWS using Terraform modules" },
+        { skill: "LangChain", count: 5, project: "RAG Chatbot", howTo: "Swap the raw vector search for a LangChain retrieval chain with memory", course: null, exampleProject: null },
       ];
 
   const actionTotalPages = Math.ceil(actionCards.length / ACTION_PAGE_SIZE);
@@ -1071,13 +1126,39 @@ const SkillGaps = () => {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
           {actionPageCards.map(g => (
-            <div key={g.skill} style={{ padding: "18px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 28, lineHeight: 1, color: T.black }}>{g.skill}</div>
+            <div key={g.skill} style={{ padding: "18px", background: T.gray100, borderRadius: 14, border: `1px solid ${T.gray200}`, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 26, lineHeight: 1, color: T.black }}>{g.skill}</div>
                 <Tag color={T.red} bg={T.redLight}>{g.count} jobs</Tag>
               </div>
-              <div style={{ fontSize: 12, color: T.gray600, marginBottom: 10, lineHeight: 1.6, fontFamily: "'Sora', sans-serif" }}>{g.action}</div>
-              {g.project && <div style={{ fontSize: 10, color: T.orange, fontFamily: "'DM Mono', monospace" }}>→ {g.project}</div>}
+              {g.project ? (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.orange, fontFamily: "'DM Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    → Add to: {g.project}
+                  </div>
+                  {g.howTo && (
+                    <div style={{ fontSize: 11, color: T.gray600, lineHeight: 1.6, fontFamily: "'Sora', sans-serif" }}>{g.howTo}</div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {g.course && (
+                    <div style={{ fontSize: 11, color: T.gray600, lineHeight: 1.5, fontFamily: "'Sora', sans-serif" }}>
+                      <span style={{ fontFamily: "'DM Mono', monospace", color: T.gray500, fontSize: 10 }}>📚 COURSE  </span>
+                      {g.course}
+                    </div>
+                  )}
+                  {g.exampleProject && (
+                    <div style={{ fontSize: 11, color: T.gray600, lineHeight: 1.5, fontFamily: "'Sora', sans-serif" }}>
+                      <span style={{ fontFamily: "'DM Mono', monospace", color: T.gray500, fontSize: 10 }}>🔧 BUILD  </span>
+                      {g.exampleProject}
+                    </div>
+                  )}
+                  {!g.course && !g.exampleProject && (
+                    <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'Sora', sans-serif" }}>Research and practice this skill</div>
+                  )}
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -1676,14 +1757,38 @@ const AutomationLogs = () => {
   useEffect(() => {
     fetch(`${API}/data/automation-logs`)
       .then(r => r.json())
-      .then(d => { setRuns(d.runs || []); setLoading(false); })
+      .then(d => {
+        const raw = d.runs || [];
+        // Group individual agent rows into pipeline runs by 2-hour window
+        const sorted = [...raw].sort((a, b) => new Date(a.run_started_at) - new Date(b.run_started_at));
+        const groups = [];
+        let cur = null;
+        for (const run of sorted) {
+          const t = new Date(run.run_started_at);
+          if (!cur || t - new Date(cur.run_started_at) > 2 * 60 * 60 * 1000) {
+            if (cur) groups.push(cur);
+            cur = { run_id: run.run_id, run_started_at: run.run_started_at, run_completed_at: run.run_completed_at, agents: [...(run.agents || [])] };
+          } else {
+            cur.agents.push(...(run.agents || []));
+            cur.run_completed_at = run.run_completed_at;
+          }
+        }
+        if (cur) groups.push(cur);
+        const withStatus = groups.reverse().map(g => ({
+          ...g,
+          all_passed: g.agents.every(a => a.status === "success"),
+          any_failed: g.agents.some(a => a.status === "failed"),
+        }));
+        setRuns(withStatus);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, [API]);
 
   const fmt = (iso) => {
     if (!iso) return "—";
     const d = new Date(iso);
-    return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
   };
 
   const duration = (start, end) => {
@@ -1996,30 +2101,31 @@ export default function App() {
   useEffect(() => { localStorage.setItem("activeTab", active); }, [active]);
   const pageTitle = navItems.find(n => n.id === active)?.label || "";
 
-  // ── Live data state (falls back to mock if API unavailable) ──
-  const [jobs, setJobs] = useState(jobsData);
-  const [liveStats, setLiveStats] = useState({ today: 23, total: 98, applied: 11, interviews: 3 });
-  const [liveTrend, setLiveTrend] = useState(trendData);
-  const [livePipeline, setLivePipeline] = useState(pipeline);
+  // ── Live data state — empty until API responds ──
+  const [jobs, setJobs] = useState([]);
+  const [liveStats, setLiveStats] = useState({ today: 0, total: 0, applied: 0, interviews: 0 });
+  const [liveTrend, setLiveTrend] = useState([]);
+  const [livePipeline, setLivePipeline] = useState([]);
+  const [apiStatus, setApiStatus] = useState("loading"); // "loading" | "ok" | "error"
 
   useEffect(() => {
-    fetchJobs().then(data => {
-      if (data?.length) {
-        const liveIds = new Set(data.map(j => j.id));
-        setJobs([...data, ...jobsData.filter(j => !liveIds.has(j.id))]);
-      }
-    });
-    fetchStats().then(data => {
-      if (data) {
-        setLiveStats({ today: data.today, total: data.total, applied: data.applied, interviews: data.interviews, last_run: data.last_run });
-        if (data.trend?.length) setLiveTrend(data.trend);
-        if (data.pipeline?.length) setLivePipeline(data.pipeline);
+    Promise.all([fetchJobs(), fetchStats()]).then(([jobData, statsData]) => {
+      if (jobData === null && statsData === null) {
+        setApiStatus("error");
+      } else {
+        setApiStatus("ok");
+        if (jobData?.length) setJobs(jobData);
+        if (statsData) {
+          setLiveStats({ today: statsData.today, total: statsData.total, applied: statsData.applied, interviews: statsData.interviews, last_run: statsData.last_run });
+          if (statsData.trend?.length) setLiveTrend(statsData.trend);
+          if (statsData.pipeline?.length) setLivePipeline(statsData.pipeline);
+        }
       }
     });
   }, []);
 
   const API = import.meta.env.VITE_API_URL || "http://16.170.177.86:8000";
-  const ctxValue = { jobs, trendData: liveTrend, pipeline: livePipeline, stats: liveStats, API };
+  const ctxValue = { jobs, trendData: liveTrend, pipeline: livePipeline, stats: liveStats, apiStatus, API };
 
   const renderPage = () => {
     if (active === "overview") return <Overview />;
@@ -2081,6 +2187,7 @@ export default function App() {
 
           {/* Content */}
           <div style={{ padding: "24px 32px", animation: "fadeUp 0.25s ease" }} key={active}>
+            <ConnectionBanner />
             {renderPage()}
           </div>
         </div>

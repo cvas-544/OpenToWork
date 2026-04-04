@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.opentowork.dashboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/vasuchukka/.nvm/versions/node/v22.18.0/bin/npm</string>
+        <string>run</string>
+        <string>dev</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/vasuchukka/Desktop/desktop/AI/OpenToWork/dashboard</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>VITE_API_URL</key>
+        <string>http://localhost:8000</string>
+        <key>PATH</key>
+        <string>/Users/vasuchukka/.nvm/versions/node/v22.18.0/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/opentowork-dashboard.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/opentowork-dashboard.log</string>
+</dict>
+</plist>

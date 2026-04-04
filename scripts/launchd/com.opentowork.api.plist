@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.opentowork.api</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/anaconda3/bin/uvicorn</string>
+        <string>server.api:app</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/vasuchukka/Desktop/desktop/AI/OpenToWork</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DATABASE_URL</key>
+        <string>postgresql://finsenseAdmin:finsense%23RDS@localhost:15432/opentowork</string>
+        <key>PATH</key>
+        <string>/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/opentowork-api.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/opentowork-api.log</string>
+</dict>
+</plist>

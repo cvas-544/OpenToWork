@@ -16,7 +16,7 @@ Usage:
 import os
 import json
 import psycopg2
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,7 +33,7 @@ class RunLogger:
         return psycopg2.connect(os.environ["DATABASE_URL"])
 
     def start(self):
-        self.started_at = datetime.now()
+        self.started_at = datetime.now(timezone.utc)
         conn = self._conn()
         cur = conn.cursor()
         cur.execute(
@@ -59,7 +59,7 @@ class RunLogger:
                details = %s
                WHERE id = %s""",
             (
-                datetime.now(),
+                datetime.now(timezone.utc),
                 jobs_found,
                 jobs_scored,
                 jobs_passed,
@@ -82,7 +82,7 @@ class RunLogger:
                details = %s
                WHERE id = %s""",
             (
-                datetime.now(),
+                datetime.now(timezone.utc),
                 str(error)[:1000],
                 json.dumps(details) if details else None,
                 self.log_id,
