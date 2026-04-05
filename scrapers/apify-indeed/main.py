@@ -19,6 +19,7 @@ from apify_client import ApifyClient
 
 BASE_URL = "https://de.indeed.com/jobs"
 SCRAPPEY_ENDPOINT = "https://publisher.scrappey.com/api/v1"
+ALTERLAB_ENDPOINT = "https://api.alterlab.io/api/v1/scrape"
 
 
 def build_url(keyword: str, location: str, offset: int = 0) -> str:
@@ -55,15 +56,36 @@ def extract_description(html: str) -> str:
         except (KeyError, json.JSONDecodeError):
             pass
 
-    # Fallback: jobDescriptionText JSON field
-    match = re.search(r'"jobDescriptionText"\s*:\s*"((?:[^"\\]|\\.)*)"', html)
+    # Fallback: jobDescriptionText HTML div
+    match = re.search(r'id="jobDescriptionText"[^>]*>(.*?)</div>\s*</div>\s*</div>', html, re.DOTALL)
     if match:
-        try:
-            return match.group(1).encode().decode("unicode_escape")
-        except Exception:
-            pass
+        text = re.sub(r"<[^>]+>", " ", match.group(1)).strip()
+        return re.sub(r"\s+", " ", text)
 
     return ""
+
+
+def fetch_description_via_alterlab(url: str, api_key: str) -> str:
+    """Fetch full job description from Indeed viewjob page via AlterLab."""
+    if not url or not api_key:
+        return ""
+    try:
+        resp = requests.post(
+            ALTERLAB_ENDPOINT,
+            headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+            json={"url": url, "mode": "auto", "sync": True, "country": "DE"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("error") or data.get("detail"):
+            print(f"[Indeed] AlterLab error for {url}: {data.get('error') or data.get('detail')}")
+            return ""
+        html = (data.get("content") or {}).get("html", "")
+        return extract_description(html)
+    except Exception as e:
+        print(f"[Indeed] AlterLab fetch error for {url}: {e}")
+        return ""
 
 
 def parse_job(raw: dict, keyword: str, location: str) -> dict:
@@ -115,7 +137,7 @@ def fetch_via_scrappey(url: str, api_key: str, session_id: str) -> str | None:
         return None
 
 
-def scrape(keyword: str, location: str, max_results: int, api_key: str) -> list[dict]:
+def scrape(keyword: str, location: str, max_results: int, api_key: str, alterlab_key: str = "") -> list[dict]:
     all_jobs: list[dict] = []
     seen_keys: set[str] = set()
     session_id = f"indeed-de-{keyword.replace(' ', '-').lower()}"
@@ -156,19 +178,17 @@ def scrape(keyword: str, location: str, max_results: int, api_key: str) -> list[
         offset += 10
         time.sleep(1)
 
-    # Fetch full descriptions for each job
+    # Fetch full descriptions via AlterLab (bypasses Cloudflare on detail pages)
     for i, job in enumerate(all_jobs):
         if not job["url"]:
             continue
         print(f"[Indeed] Fetching description {i+1}/{len(all_jobs)}: {job['url']}")
-        detail_html = fetch_via_scrappey(job["url"], api_key, f"{session_id}-detail-{i}")
-        if detail_html:
-            desc = extract_description(detail_html)
-            if desc:
-                job["descriptionText"] = desc
-                print(f"[Indeed] Got description ({len(desc)} chars)")
-            else:
-                print(f"[Indeed] No description found in detail page")
+        desc = fetch_description_via_alterlab(job["url"], alterlab_key)
+        if desc:
+            job["descriptionText"] = desc
+            print(f"[Indeed] Got description ({len(desc)} chars)")
+        else:
+            print(f"[Indeed] No description — falling back to snippet")
         time.sleep(0.5)
 
     return all_jobs
@@ -180,6 +200,7 @@ async def main() -> None:
     dataset_id  = os.environ.get("APIFY_DEFAULT_DATASET_ID", "")
     input_key   = os.environ.get("APIFY_INPUT_KEY", "INPUT")
     scrappey_key = os.environ.get("SCRAPPEY_API_KEY", "")
+    alterlab_key = os.environ.get("ALTERLAB_API_KEY", "")
 
     if not scrappey_key:
         print("[Indeed] ERROR: SCRAPPEY_API_KEY env var not set.")
@@ -198,7 +219,7 @@ async def main() -> None:
 
     print(f"[Indeed] keyword={keyword} location={location} max={max_results}")
 
-    jobs = scrape(keyword, location, max_results, scrappey_key)
+    jobs = scrape(keyword, location, max_results, scrappey_key, alterlab_key)
     print(f"[Indeed] Scraped {len(jobs)} jobs total")
 
     if apify_token and dataset_id and jobs:
