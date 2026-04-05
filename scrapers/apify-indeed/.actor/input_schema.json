@@ -1,0 +1,29 @@
+{
+  "title": "Indeed Germany Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "keyword": {
+      "title": "Search keyword",
+      "type": "string",
+      "description": "Job title or keyword to search for",
+      "default": "AI Engineer",
+      "editor": "textfield"
+    },
+    "location": {
+      "title": "Location",
+      "type": "string",
+      "description": "City or region in Germany",
+      "default": "Germany",
+      "editor": "textfield"
+    },
+    "maxResults": {
+      "title": "Max results",
+      "type": "integer",
+      "description": "Maximum number of jobs to scrape",
+      "default": 20,
+      "editor": "number"
+    }
+  },
+  "required": ["keyword"]
+}

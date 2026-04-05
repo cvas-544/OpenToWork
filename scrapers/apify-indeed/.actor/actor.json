@@ -1,0 +1,9 @@
+{
+  "actorSpecification": 1,
+  "name": "indeed-scraper-de",
+  "title": "Indeed Germany Job Scraper",
+  "description": "Scrapes Indeed Germany for AI/ML job listings",
+  "version": "0.1",
+  "dockerfile": "./Dockerfile",
+  "input": "./input_schema.json"
+}
