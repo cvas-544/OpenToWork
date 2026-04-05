@@ -531,14 +531,19 @@ def get_scraper_stats():
     """)
     totals = {r["source"]: r["total"] for r in cur.fetchall()}
 
-    # Daily jobs per source — last 14 days
+    # Daily jobs per source — all time, last 30 distinct days
     cur.execute("""
         SELECT TO_CHAR(DATE(scraped_at), 'Mon DD') AS date,
                DATE(scraped_at) AS raw_date,
                source,
                COUNT(*) AS count
         FROM job_listings
-        WHERE scraped_at >= NOW() - INTERVAL '14 days'
+        WHERE DATE(scraped_at) IN (
+            SELECT DISTINCT DATE(scraped_at)
+            FROM job_listings
+            ORDER BY DATE(scraped_at) DESC
+            LIMIT 30
+        )
         GROUP BY DATE(scraped_at), source
         ORDER BY DATE(scraped_at)
     """)
