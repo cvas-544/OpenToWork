@@ -180,7 +180,7 @@ def scrape_apify_indeed() -> list[dict]:
     for keyword in INDEED_KEYWORDS:
         print(f"[Indeed] Scraping '{keyword}' via Apify actor...")
         try:
-            run = client.actor("cvas-544/indeed-scraper-de").call(
+            run = client.actor("9qhb5j6V4P6hNBKWF").call(
                 run_input={"keyword": keyword, "location": "Germany", "maxResults": 15},
                 timeout_secs=300,
             )
