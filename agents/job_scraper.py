@@ -191,7 +191,7 @@ def scrape_apify_indeed() -> list[dict]:
                     "location": item.get("location", "Germany"),
                     "remote": item.get("remote", False),
                     "url": item.get("url", ""),
-                    "description": "",
+                    "description": item.get("snippet", ""),
                     "date_posted": item.get("date_posted", ""),
                     "source": "indeed",
                 })

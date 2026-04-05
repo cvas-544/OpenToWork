@@ -585,7 +585,7 @@ const JobsBoard = () => {
                 <option value="rejected">Rejected</option>
                 <option value="offer">Offer</option>
               </select>
-              <Tag color={j.source === "linkedin" ? "#0A66C2" : "#2E6B3E"} bg={j.source === "linkedin" ? "#E8F0F9" : "#E8F4EC"}>{j.source === "linkedin" ? "LinkedIn" : "Agentur"}</Tag>
+              <Tag color={j.source === "linkedin" ? "#0A66C2" : j.source === "indeed" ? "#8B2FC9" : "#2E6B3E"} bg={j.source === "linkedin" ? "#E8F0F9" : j.source === "indeed" ? "#F3E8FD" : "#E8F4EC"}>{j.source === "linkedin" ? "LinkedIn" : j.source === "indeed" ? "Indeed" : "Agentur"}</Tag>
               <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", width: 60, textAlign: "right" }}>{fmtDate(j.date_posted)}</div>
             </div>
           ))}
@@ -671,7 +671,7 @@ const JobsBoard = () => {
                   color: selected.url ? "#fff" : T.gray400,
                   cursor: selected.url ? "pointer" : "not-allowed",
                 }}
-              >↗ {selected.url ? `Apply on ${selected.source === "linkedin" ? "LinkedIn" : "Arbeitsagentur"}` : "No Apply Link"}</button>
+              >↗ {selected.url ? `Apply on ${selected.source === "linkedin" ? "LinkedIn" : selected.source === "indeed" ? "Indeed" : "Arbeitsagentur"}` : "No Apply Link"}</button>
             </div>
           </div>
         )}
@@ -902,10 +902,10 @@ const MapView = () => {
                   </div>
                 </div>
                 <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 99, flexShrink: 0,
-                  background: j.source === "linkedin" ? "#E8F0F9" : "#E8F4EC",
-                  color: j.source === "linkedin" ? "#0A66C2" : "#2E6B3E",
+                  background: j.source === "linkedin" ? "#E8F0F9" : j.source === "indeed" ? "#F3E8FD" : "#E8F4EC",
+                  color: j.source === "linkedin" ? "#0A66C2" : j.source === "indeed" ? "#8B2FC9" : "#2E6B3E",
                   fontFamily: "'DM Mono',monospace" }}>
-                  {j.source === "linkedin" ? "LI" : "DE"}
+                  {j.source === "linkedin" ? "LI" : j.source === "indeed" ? "IN" : "DE"}
                 </span>
               </div>
             );
