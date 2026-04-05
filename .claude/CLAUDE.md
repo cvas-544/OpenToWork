@@ -36,7 +36,7 @@ Intelligence layer = Claude API. Orchestration = n8n. Dashboard = React.
   - `claude-sonnet-4-6` — Agent 3, 4, 5 (reasoning, generation, synthesis)
 - Database: PostgreSQL on AWS RDS
 - Dashboard: React + Vite + Tailwind + Recharts
-- Scraping: Arbeitsagentur REST API (free, X-API-Key: jobboerse-jobsuche) + SerpAPI
+- Scraping: Arbeitsagentur REST API + Apify LinkedIn (`curious_coder/linkedin-jobs-scraper`) + Apify Indeed (`cvas-544/indeed-scraper-de`, Scrappey-based)
 - Email: Gmail via n8n Gmail node
 
 ---
@@ -261,11 +261,35 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 - **n8n pipeline updated**: Schedule → Agent1 → Agent2 → Agent3 | Sunday → Agent5 → Agent6
 - **n8n timeouts fixed**: EXECUTIONS_TIMEOUT=1800, Agent2=30min, others=10min
 - `scripts/ec2-restart-n8n.sh` — SSH pull + docker compose restart
+- **Dashboard search bar**: above Jobs Board containers, 80% white opacity, filters by title
+- **Dashboard connection banner**: shown when API unreachable (no mock fallback, empty states)
+- **Automation Logs timezone**: Europe/Berlin display (was UTC)
+- **Automation Logs grouping**: 2-hour window client-side grouping → one row per pipeline run
+- **launchd auto-start**: 3 plists in `scripts/launchd/` (tunnel + api + dashboard), `install-autostart.sh`
+- **n8n workflow JSON**: fixed malformed Agent 4 node, added run_id query param, timeout per agent
+- **run_logger.py**: fixed UTC datetime (timezone.utc)
+- **Indeed scraper live**: `wannabe/indeed-scraper-de` (ID: 9qhb5j6V4P6hNBKWF) build 0.1.26 — Scrappey for search, AlterLab for detail page descriptions
+- **Indeed keywords**: `["AI Engineer", "Agentic AI", "KI", "AI"]` — 5 jobs/keyword
+- **Scrapper dashboard tab**: top 3 glass cards (Arbeitsagentur/LinkedIn/Indeed job counts) + bottom line chart (14-day timeline per scraper), `/data/scraper-stats` endpoint
+- **Indeed dashboard fixes**: purple "Indeed" tag, correct apply button label, Unix timestamp → date conversion (backfilled 55 jobs)
+- **EC2 container fix**: was running without volume mount — fixed via `docker compose up --force-recreate agents`
+- **LinkedIn scraper**: blocked (Apify plan limit) — resets 2026-04-10
+
+### Indeed Scraper — Live ✅
+- Actor: `wannabe/indeed-scraper-de` (ID: 9qhb5j6V4P6hNBKWF) at `scrapers/apify-indeed/`
+- Current build: 0.1.26
+- Search pages: Scrappey (`SCRAPPEY_API_KEY` in Apify actor env) — 4 credits/request, `proxyCountry: Germany` (premiumProxy deprecated/removed)
+- Detail pages: AlterLab (`ALTERLAB_API_KEY` in Apify actor env) — 2500 credits/request, free tier = 5000 requests = ~250 runs
+- Keywords: `["AI Engineer", "Agentic AI", "KI", "AI"]` — 5 jobs/keyword = 20 detail fetches/run
+- Cost per run: 16 Scrappey credits (search) + 20 AlterLab requests (descriptions)
+- AlterLab key: `sk_live_4e4fnazj7dgm_...` (in Apify actor env as `ALTERLAB_API_KEY`)
+- Scrappey key: updated 2026-04-05 (old key was stale — caused 400 errors)
+- **Pending test**: full run with AlterLab description fetching not yet verified (test tomorrow)
 
 ### Agent Architecture (current)
 | Agent | Trigger | Model | Notes |
 |---|---|---|---|
-| 1 — Job Scraper | n8n 8am/noon/8pm | — | Arbeitsagentur + Apify LinkedIn |
+| 1 — Job Scraper | n8n 8am/noon/8pm | — | Arbeitsagentur + Apify LinkedIn (reset 10 Apr) + Apify Indeed (Scrappey+AlterLab) |
 | 2 — CV Matcher | After Agent 1 | Haiku → llama3 | All unscored jobs |
 | 3 — Gap Analyst | After Agent 2 | Sonnet → llama3 | Weekly gaps, 6000 max_tokens |
 | 4 — Interview Coach | Status → Interview | Sonnet → llama3 | On-demand only |
@@ -292,4 +316,4 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## Last Updated
-2026-03-31 — Ollama fallback live. Automation Logs tab added. Agent 4 now triggers on Interview status only. Agent 5 switched to weekly Sunday digest + saves to reports/weekly/. n8n timeouts fixed (was cancelling at 5min). ec2-restart-n8n.sh script added.
+2026-04-05 (Session 5) — Indeed scraper fully live: fixed actor name (wannabe/ not cvas-544/), stale Scrappey key, EC2 container missing volume mount. Added AlterLab for full job descriptions (search=Scrappey, detail=AlterLab). Dashboard: Indeed purple tag, apply button label, date_posted Unix→date fix (backfilled 55 jobs). LinkedIn blocked until 2026-04-10 (Apify plan limit). Full description test pending tomorrow.
