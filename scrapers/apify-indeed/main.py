@@ -92,7 +92,6 @@ def fetch_via_scrappey(url: str, api_key: str, session_id: str) -> str | None:
         "cmd": "request.get",
         "url": url,
         "session": session_id,
-        "premiumProxy": True,
         "proxyCountry": "Germany",
     }
     try:
