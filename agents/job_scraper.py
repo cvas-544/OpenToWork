@@ -214,6 +214,12 @@ def scrape_apify_indeed() -> list[dict]:
             )
             batch = []
             for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+                pub = item.get("date_posted", "")
+                if pub and str(pub).lstrip("-").isdigit():
+                    ts = int(pub)
+                    if ts > 1e10:  # milliseconds
+                        ts //= 1000
+                    pub = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
                 batch.append({
                     "title": item.get("title", ""),
                     "company": item.get("company", ""),
@@ -221,7 +227,7 @@ def scrape_apify_indeed() -> list[dict]:
                     "remote": item.get("remote", False),
                     "url": item.get("url", ""),
                     "description": item.get("snippet", ""),
-                    "date_posted": item.get("date_posted", ""),
+                    "date_posted": pub,
                     "source": "indeed",
                 })
             # Enrich with full descriptions (plain HTTP — no Scrappey cost)
