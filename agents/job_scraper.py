@@ -209,7 +209,7 @@ def scrape_apify_indeed() -> list[dict]:
         print(f"[Indeed] Scraping '{keyword}' via Apify actor...")
         try:
             run = client.actor("wannabe/indeed-scraper-de").call(
-                run_input={"keyword": keyword, "location": "Germany", "maxResults": 15},
+                run_input={"keyword": keyword, "location": "Germany", "maxResults": 5},
                 timeout_secs=300,
             )
             batch = []
@@ -226,7 +226,7 @@ def scrape_apify_indeed() -> list[dict]:
                     "location": item.get("location", "Germany"),
                     "remote": item.get("remote", False),
                     "url": item.get("url", ""),
-                    "description": item.get("snippet", ""),
+                    "description": item.get("descriptionText") or item.get("snippet", ""),
                     "date_posted": pub,
                     "source": "indeed",
                 })
