@@ -168,6 +168,39 @@ def deduplicate_and_save(jobs: list[dict]) -> list[dict]:
     return new_jobs
 
 
+INDEED_KEYWORDS = ["AI Engineer", "Agentic AI", "KI", "AI"]
+
+
+def scrape_apify_indeed() -> list[dict]:
+    if not APIFY_TOKEN:
+        print("[Indeed] No APIFY_TOKEN — skipping")
+        return []
+    client = ApifyClient(APIFY_TOKEN)
+    jobs = []
+    for keyword in INDEED_KEYWORDS:
+        print(f"[Indeed] Scraping '{keyword}' via Apify actor...")
+        try:
+            run = client.actor("cvas-544/indeed-scraper-de").call(
+                run_input={"keyword": keyword, "location": "Germany", "maxResults": 15},
+                timeout_secs=300,
+            )
+            for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+                jobs.append({
+                    "title": item.get("title", ""),
+                    "company": item.get("company", ""),
+                    "location": item.get("location", "Germany"),
+                    "remote": item.get("remote", False),
+                    "url": item.get("url", ""),
+                    "description": "",
+                    "date_posted": item.get("date_posted", ""),
+                    "source": "indeed",
+                })
+            print(f"[Indeed] '{keyword}': {len(jobs)} jobs so far")
+        except Exception as e:
+            print(f"[Indeed] Error for '{keyword}': {e}")
+    return jobs
+
+
 def run() -> list[dict]:
     print(f"[Agent 1] Starting job scrape at {datetime.now().isoformat()}")
     all_jobs = []
@@ -177,6 +210,8 @@ def run() -> list[dict]:
 
     for keyword in LINKEDIN_KEYWORDS:
         all_jobs += scrape_apify_linkedin(keyword)
+
+    all_jobs += scrape_apify_indeed()
 
     new_jobs = deduplicate_and_save(all_jobs)
     print(f"[Agent 1] Found {len(all_jobs)} total, {len(new_jobs)} new jobs")

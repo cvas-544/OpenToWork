@@ -122,6 +122,17 @@ export async function updateApplicationStatus(jobId, status, notes = "") {
   }
 }
 
+export async function fetchScraperStats() {
+  try {
+    const res = await fetch(`${API_URL}/data/scraper-stats`);
+    if (!res.ok) throw new Error("API error");
+    return await res.json();
+  } catch (e) {
+    console.warn("[API] fetchScraperStats failed:", e.message);
+    return null;
+  }
+}
+
 export async function updateSkills(skills) {
   try {
     const res = await fetch(`${API_URL}/profile/skills`, {

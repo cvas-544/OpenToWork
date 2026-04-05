@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, fetchInterviewPrep } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, fetchInterviewPrep, fetchScraperStats } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
@@ -153,6 +153,7 @@ const navItems = [
   { id: "interview", label: "Interview Prep", icon: "◇" },
   { id: "analytics", label: "Analytics", icon: "◉" },
   { id: "automation", label: "Automation Logs", icon: "⟳" },
+  { id: "scraper", label: "Scrapper", icon: "⟐" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -2093,6 +2094,104 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
   );
 };
 
+// ─── Scrapper ─────────────────────────────────────────────────────────────────
+const SCRAPER_META = {
+  arbeitsagentur: { label: "Arbeitsagentur", color: T.orange, icon: "🇩🇪" },
+  linkedin:       { label: "LinkedIn",        color: T.green,  icon: "💼" },
+  indeed:         { label: "Indeed",          color: T.navy,   icon: "🔍" },
+};
+
+const ScraperStats = () => {
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    fetchScraperStats().then(d => { if (d) setStats(d); });
+  }, []);
+
+  const totals = stats?.totals || { arbeitsagentur: 0, linkedin: 0, indeed: 0 };
+  const timeline = stats?.timeline || [];
+  const totalAll = Object.values(totals).reduce((a, b) => a + b, 0);
+
+  return (
+    <div style={{ padding: "32px", display: "flex", flexDirection: "column", gap: 24, height: "100%", animation: "fadeUp 0.3s ease" }}>
+
+      {/* ── Top: 3 scraper cards ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+        {Object.entries(SCRAPER_META).map(([key, meta]) => {
+          const count = totals[key] || 0;
+          const pct = totalAll > 0 ? Math.round((count / totalAll) * 100) : 0;
+          return (
+            <Card key={key} style={{ padding: "28px 28px 24px" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                    {meta.icon} {meta.label}
+                  </div>
+                  <div style={{ fontSize: 48, fontFamily: "'Bebas Neue', sans-serif", color: meta.color, lineHeight: 1 }}>
+                    {count.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 4 }}>
+                    jobs scraped total
+                  </div>
+                </div>
+                <div style={{
+                  width: 48, height: 48, borderRadius: "50%",
+                  background: `${meta.color}18`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 20,
+                }}>
+                  {meta.icon}
+                </div>
+              </div>
+              {/* share bar */}
+              <div style={{ height: 4, borderRadius: 99, background: T.gray200, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: meta.color, borderRadius: 99, transition: "width 0.8s ease" }} />
+              </div>
+              <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>
+                {pct}% of all scraped jobs
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* ── Bottom: timeline line chart ── */}
+      <Card style={{ flex: 1, padding: "24px 24px 16px" }}>
+        <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: T.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: 20 }}>
+          Jobs Scraped — Last 14 Days
+        </div>
+        {timeline.length === 0 ? (
+          <EmptyState message="No timeline data yet" sub="Run the pipeline to populate this chart" />
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={timeline} margin={{ top: 5, right: 24, left: 0, bottom: 5 }}>
+              <XAxis dataKey="date" tick={{ fontSize: 10, fontFamily: "'DM Mono', monospace", fill: T.gray400 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fontFamily: "'DM Mono', monospace", fill: T.gray400 }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip
+                contentStyle={{ background: "rgba(255,255,255,0.95)", border: `1px solid ${T.gray200}`, borderRadius: 10, fontFamily: "'DM Mono', monospace", fontSize: 11 }}
+                cursor={{ stroke: T.gray200 }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11, fontFamily: "'DM Mono', monospace", paddingTop: 12 }} />
+              {Object.entries(SCRAPER_META).map(([key, meta]) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  name={meta.label}
+                  stroke={meta.color}
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: meta.color, strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </Card>
+    </div>
+  );
+};
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [active, setActive] = useState(() => localStorage.getItem("activeTab") || "overview");
@@ -2136,6 +2235,7 @@ export default function App() {
     if (active === "interview") return <InterviewPrepView />;
     if (active === "analytics") return <Analytics />;
     if (active === "automation") return <AutomationLogs />;
+    if (active === "scraper") return <ScraperStats />;
     if (active === "profile") return <ProfileView />;
   };
 

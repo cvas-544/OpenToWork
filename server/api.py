@@ -518,6 +518,51 @@ def get_stats():
     }
 
 
+@app.get("/data/scraper-stats")
+def get_scraper_stats():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Total jobs per source
+    cur.execute("""
+        SELECT source, COUNT(*) AS total
+        FROM job_listings
+        GROUP BY source
+    """)
+    totals = {r["source"]: r["total"] for r in cur.fetchall()}
+
+    # Daily jobs per source — last 14 days
+    cur.execute("""
+        SELECT TO_CHAR(DATE(scraped_at), 'Mon DD') AS date,
+               DATE(scraped_at) AS raw_date,
+               source,
+               COUNT(*) AS count
+        FROM job_listings
+        WHERE scraped_at >= NOW() - INTERVAL '14 days'
+        GROUP BY DATE(scraped_at), source
+        ORDER BY DATE(scraped_at)
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    # Build timeline: [{date, arbeitsagentur, linkedin, indeed}, ...]
+    from collections import defaultdict
+    day_map = defaultdict(lambda: {"arbeitsagentur": 0, "linkedin": 0, "indeed": 0})
+    for r in rows:
+        day_map[r["date"]][r["source"]] = r["count"]
+    timeline = [{"date": d, **counts} for d, counts in sorted(day_map.items())]
+
+    return {
+        "totals": {
+            "arbeitsagentur": totals.get("arbeitsagentur", 0),
+            "linkedin": totals.get("linkedin", 0),
+            "indeed": totals.get("indeed", 0),
+        },
+        "timeline": timeline,
+    }
+
+
 @app.get("/data/automation-logs")
 def get_automation_logs():
     conn = get_db()
