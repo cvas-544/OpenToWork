@@ -170,6 +170,34 @@ def deduplicate_and_save(jobs: list[dict]) -> list[dict]:
 
 INDEED_KEYWORDS = ["AI Engineer", "Agentic AI", "KI", "AI"]
 
+INDEED_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+
+def fetch_indeed_description(url: str) -> str:
+    """Fetch full job description from an Indeed viewjob page. Falls back to empty string."""
+    if not url:
+        return ""
+    try:
+        resp = requests.get(url, headers=INDEED_HEADERS, timeout=10)
+        if resp.status_code != 200:
+            return ""
+        html = resp.text
+        # Indeed embeds job data in a <script> tag as window._initialData or mosaic JSON
+        match = re.search(r'"jobDescriptionText"\s*:\s*"((?:[^"\\]|\\.)*)"', html)
+        if match:
+            return match.group(1).encode().decode("unicode_escape")
+        # Fallback: look for sanitized description div
+        match = re.search(r'id="jobDescriptionText"[^>]*>(.*?)</div>', html, re.DOTALL)
+        if match:
+            return re.sub(r"<[^>]+>", " ", match.group(1)).strip()
+        return ""
+    except Exception:
+        return ""
+
 
 def scrape_apify_indeed() -> list[dict]:
     if not APIFY_TOKEN:
@@ -184,8 +212,9 @@ def scrape_apify_indeed() -> list[dict]:
                 run_input={"keyword": keyword, "location": "Germany", "maxResults": 15},
                 timeout_secs=300,
             )
+            batch = []
             for item in client.dataset(run["defaultDatasetId"]).iterate_items():
-                jobs.append({
+                batch.append({
                     "title": item.get("title", ""),
                     "company": item.get("company", ""),
                     "location": item.get("location", "Germany"),
@@ -195,7 +224,15 @@ def scrape_apify_indeed() -> list[dict]:
                     "date_posted": item.get("date_posted", ""),
                     "source": "indeed",
                 })
-            print(f"[Indeed] '{keyword}': {len(jobs)} jobs so far")
+            # Enrich with full descriptions (plain HTTP — no Scrappey cost)
+            enriched = 0
+            for job in batch:
+                full_desc = fetch_indeed_description(job["url"])
+                if full_desc:
+                    job["description"] = full_desc
+                    enriched += 1
+            jobs += batch
+            print(f"[Indeed] '{keyword}': {len(batch)} jobs, {enriched} with full descriptions")
         except Exception as e:
             print(f"[Indeed] Error for '{keyword}': {e}")
     return jobs
