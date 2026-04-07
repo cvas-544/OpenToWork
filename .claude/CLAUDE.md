@@ -273,23 +273,34 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 - **Scrapper dashboard tab**: top 3 glass cards (Arbeitsagentur/LinkedIn/Indeed job counts) + bottom line chart (14-day timeline per scraper), `/data/scraper-stats` endpoint
 - **Indeed dashboard fixes**: purple "Indeed" tag, correct apply button label, Unix timestamp → date conversion (backfilled 55 jobs)
 - **EC2 container fix**: was running without volume mount — fixed via `docker compose up --force-recreate agents`
-- **LinkedIn scraper**: blocked (Apify plan limit) — resets 2026-04-10
+- **LinkedIn scraper**: unblocked — now on new public Apify account (`APIFY_TOKEN_PUBLIC`)
+- **Apify token split**: `APIFY_TOKEN` (private account, Indeed actor) + `APIFY_TOKEN_PUBLIC` (public account, LinkedIn)
+- **Agent 2 fix**: Claude was silently failing (no Anthropic credits) → credits topped up 2026-04-07; llm_client.py now surfaces exact Claude error reason in failure message
+- **llm_client.py**: added `ANTHROPIC_API_KEY` presence check — raises immediately instead of falling back to Ollama
 
 ### Indeed Scraper — Live ✅
 - Actor: `wannabe/indeed-scraper-de` (ID: 9qhb5j6V4P6hNBKWF) at `scrapers/apify-indeed/`
 - Current build: 0.1.26
-- Search pages: Scrappey (`SCRAPPEY_API_KEY` in Apify actor env) — 4 credits/request, `proxyCountry: Germany` (premiumProxy deprecated/removed)
-- Detail pages: AlterLab (`ALTERLAB_API_KEY` in Apify actor env) — 2500 credits/request, free tier = 5000 requests = ~250 runs
+- Search pages: Scrappey (`SCRAPPEY_API_KEY` in Apify actor env) — 4 credits/request, `proxyCountry: Germany`
+- Detail pages: AlterLab (`ALTERLAB_API_KEY` in Apify actor env) — $0.00250/job
 - Keywords: `["AI Engineer", "Agentic AI", "KI", "AI"]` — 5 jobs/keyword = 20 detail fetches/run
 - Cost per run: 16 Scrappey credits (search) + 20 AlterLab requests (descriptions)
 - AlterLab key: `sk_live_4e4fnazj7dgm_...` (in Apify actor env as `ALTERLAB_API_KEY`)
-- Scrappey key: updated 2026-04-05 (old key was stale — caused 400 errors)
-- **Pending test**: full run with AlterLab description fetching not yet verified (test tomorrow)
+- Scrappey key: updated 2026-04-05
+
+### Scraper Budget (as of 2026-04-07)
+| Service | Remaining | Per run | Runs left | Days left |
+|---|---|---|---|---|
+| Scrappey | 153 credits | 16 credits | **9 runs** | **~3 working days** |
+| AlterLab | $0.98 (~392 jobs) | 20 requests ($0.05) | **19 runs** | ~6 working days |
+| Apify public ($5 grant) | ~$5 | ~$0.02 | **250+ runs** | not bottleneck |
+- **Bottleneck: Scrappey** — top up to extend Indeed scraping beyond 3 days
+- AlterLab full description test: **pending** (first live run 2026-04-07)
 
 ### Agent Architecture (current)
 | Agent | Trigger | Model | Notes |
 |---|---|---|---|
-| 1 — Job Scraper | n8n 8am/noon/8pm | — | Arbeitsagentur + Apify LinkedIn (reset 10 Apr) + Apify Indeed (Scrappey+AlterLab) |
+| 1 — Job Scraper | n8n 8am/noon/8pm | — | Arbeitsagentur + LinkedIn (APIFY_TOKEN_PUBLIC) + Indeed (APIFY_TOKEN, Scrappey+AlterLab) |
 | 2 — CV Matcher | After Agent 1 | Haiku → llama3 | All unscored jobs |
 | 3 — Gap Analyst | After Agent 2 | Sonnet → llama3 | Weekly gaps, 6000 max_tokens |
 | 4 — Interview Coach | Status → Interview | Sonnet → llama3 | On-demand only |
@@ -316,4 +327,4 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## Last Updated
-2026-04-05 (Session 5) — Indeed scraper fully live: fixed actor name (wannabe/ not cvas-544/), stale Scrappey key, EC2 container missing volume mount. Added AlterLab for full job descriptions (search=Scrappey, detail=AlterLab). Dashboard: Indeed purple tag, apply button label, date_posted Unix→date fix (backfilled 55 jobs). LinkedIn blocked until 2026-04-10 (Apify plan limit). Full description test pending tomorrow.
+2026-04-07 (Session 6) — Agent 2 fixed (Anthropic credits topped up, llm_client.py now surfaces Claude error reason). Apify token split: APIFY_TOKEN_PUBLIC for LinkedIn (new public account), APIFY_TOKEN for Indeed actor. LinkedIn unblocked. Budget: Scrappey=9 runs (~3 working days, bottleneck), AlterLab=19 runs, Apify=$5 grant. First full pipeline run with AlterLab descriptions pending.
