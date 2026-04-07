@@ -89,8 +89,12 @@ def call_llm(prompt: str, model: str, max_tokens: int, agent_name: str = None) -
         RuntimeError: If both Claude and Ollama fail.
     """
     # --- Try Claude first ---
+    claude_error = None
     try:
-        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError("[LLM] ANTHROPIC_API_KEY not set in environment")
+        client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
@@ -99,11 +103,16 @@ def call_llm(prompt: str, model: str, max_tokens: int, agent_name: str = None) -
         return _strip_fences(response.content[0].text)
 
     except anthropic.RateLimitError as e:
+        claude_error = f"rate_limit: {e}"
         print(f"[LLM] Claude rate limit hit — falling back to Ollama. ({e})")
     except anthropic.APIStatusError as e:
+        claude_error = f"api_status_{e.status_code}: {e.message}"
         print(f"[LLM] Claude API error {e.status_code} — falling back to Ollama. ({e.message})")
     except anthropic.APIConnectionError as e:
+        claude_error = f"connection_error: {e}"
         print(f"[LLM] Claude connection error — falling back to Ollama. ({e})")
+    except RuntimeError as e:
+        raise  # propagate missing key immediately — no Ollama fallback makes sense
 
     # --- Ollama fallback ---
     if agent_name and agent_name in AGENT_MODEL_OVERRIDES:
@@ -116,4 +125,4 @@ def call_llm(prompt: str, model: str, max_tokens: int, agent_name: str = None) -
     try:
         return _strip_fences(_call_ollama(ollama_model, prompt, max_tokens))
     except Exception as e:
-        raise RuntimeError(f"[LLM] Both Claude and Ollama failed: {e}") from e
+        raise RuntimeError(f"[LLM] Both Claude and Ollama failed. Claude error: {claude_error}. Ollama error: {e}") from e
