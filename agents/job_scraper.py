@@ -19,7 +19,8 @@ from apify_client import ApifyClient
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")          # private account — Indeed actor
+APIFY_TOKEN_PUBLIC = os.environ.get("APIFY_TOKEN_PUBLIC", "")  # public account — LinkedIn + other public actors
 ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche")
 
 ARBEITSAGENTUR_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "KI", "KI-Engineer", "AI", "KI Entwickler", "Agentic AI"]
@@ -102,14 +103,15 @@ def scrape_arbeitsagentur(keyword: str) -> list[dict]:
 
 
 def scrape_apify_linkedin(keyword: str) -> list[dict]:
-    if not APIFY_TOKEN:
+    if not APIFY_TOKEN_PUBLIC:
+        print("[LinkedIn] No APIFY_TOKEN_PUBLIC — skipping")
         return []
     search_url = (
         "https://www.linkedin.com/jobs/search/?"
         + urllib.parse.urlencode({**LINKEDIN_BASE_PARAMS, "keywords": keyword})
     )
     try:
-        client = ApifyClient(APIFY_TOKEN)
+        client = ApifyClient(APIFY_TOKEN_PUBLIC)
         run = client.actor("curious_coder/linkedin-jobs-scraper").call(
             run_input={"urls": [search_url], "count": 15}
         )
