@@ -439,7 +439,10 @@ const JobsBoard = () => {
     else if (scoreFilter === "scored") { if (!score) return false; }
     else if (scoreFilter === "unscored") { if (score) return false; }
     if (statusFilter !== "all" && effectiveStatus(j) !== statusFilter) return false;
-    if (searchQuery && !j.title?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!j.title?.toLowerCase().includes(q) && !j.company?.toLowerCase().includes(q) && !j.location?.toLowerCase().includes(q)) return false;
+    }
     return true;
   }).sort((a, b) => {
     const aD = new Date(a.date_posted || 0);
@@ -487,7 +490,7 @@ const JobsBoard = () => {
     <div style={{ marginBottom: 12 }}>
       <input
         type="text"
-        placeholder="Search job titles…"
+        placeholder="Search by title, company or city…"
         value={searchQuery}
         onChange={e => setSearchQuery(e.target.value)}
         style={{
