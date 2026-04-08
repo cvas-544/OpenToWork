@@ -295,12 +295,13 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 | AlterLab | $0.98 (~392 jobs) | 20 requests ($0.05) | **19 runs** | ~6 working days |
 | Apify public ($5 grant) | ~$5 | ~$0.02 | **250+ runs** | not bottleneck |
 - **Bottleneck: Scrappey** — top up to extend Indeed scraping beyond 3 days
-- AlterLab full description test: **pending** (first live run 2026-04-07)
+- Indeed actor fixed 2026-04-08: added Dockerfile + requirements.txt (was running blank Node.js template)
+- Full pipeline verified working end-to-end 2026-04-08
 
 ### Agent Architecture (current)
 | Agent | Trigger | Model | Notes |
 |---|---|---|---|
-| 1 — Job Scraper | n8n 8am/noon/8pm | — | Arbeitsagentur + LinkedIn (APIFY_TOKEN_PUBLIC) + Indeed (APIFY_TOKEN, Scrappey+AlterLab) |
+| 1 — Job Scraper | n8n 8am/noon/8pm | — | Arbeitsagentur (profession=Softwareentwickler/in + AI word-boundary filter) + LinkedIn 3 keywords (APIFY_TOKEN_PUBLIC) + Indeed 4 keywords (APIFY_TOKEN, Scrappey+AlterLab) |
 | 2 — CV Matcher | After Agent 1 | Haiku → llama3 | All unscored jobs |
 | 3 — Gap Analyst | After Agent 2 | Sonnet → llama3 | Weekly gaps, 6000 max_tokens |
 | 4 — Interview Coach | Status → Interview | Sonnet → llama3 | On-demand only |
@@ -327,4 +328,4 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## Last Updated
-2026-04-07 (Session 6) — Agent 2 fixed (Anthropic credits topped up, llm_client.py now surfaces Claude error reason). Apify token split: APIFY_TOKEN_PUBLIC for LinkedIn (new public account), APIFY_TOKEN for Indeed actor. LinkedIn unblocked. Budget: Scrappey=9 runs (~3 working days, bottleneck), AlterLab=19 runs, Apify=$5 grant. First full pipeline run with AlterLab descriptions pending.
+2026-04-08 (Session 6 cont.) — Full pipeline working end-to-end. Arbeitsagentur switched to profession search (Softwareentwickler/in) + word-boundary AI filter (zero LLM cost). Indeed actor fixed (added Dockerfile + requirements.txt). Agent 1 timing logs added. LinkedIn keywords reduced to 3. Job board search expanded to title/company/city. n8n HTTP node timeouts set to 1800000ms for Agent 1 + 2.
