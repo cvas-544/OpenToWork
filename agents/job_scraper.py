@@ -32,7 +32,26 @@ APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")          # private account — I
 APIFY_TOKEN_PUBLIC = os.environ.get("APIFY_TOKEN_PUBLIC", "")  # public account — LinkedIn + other public actors
 ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche")
 
-ARBEITSAGENTUR_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "KI", "KI-Engineer", "AI", "KI Entwickler", "Agentic AI"]
+ARBEITSAGENTUR_PROFESSION = "Softwareentwickler/in"  # broad profession — fetches all SW dev jobs
+AI_FILTER_TERMS = [
+    # from original keyword list
+    "ai engineer", "ml engineer", "machine learning", "ki-engineer", "ki entwickler", "agentic ai",
+    # short whole-word terms (need \b boundary)
+    "ai", "ki", "ml",
+    # broader AI/ML terms
+    "deep learning", "llm", "nlp", "neural", "data science",
+    "künstliche intelligenz", "maschinelles lernen",
+]
+# Pre-compiled regex: whole-word, case-insensitive
+_AI_FILTER_RE = re.compile(
+    r"\b(" + "|".join(re.escape(t) for t in AI_FILTER_TERMS) + r")\b",
+    re.IGNORECASE,
+)
+
+def _is_ai_relevant(job: dict) -> bool:
+    """Return True if title or description contains any AI/ML term as a whole word."""
+    text = f"{job.get('title', '')} {job.get('description', '')}"
+    return bool(_AI_FILTER_RE.search(text))
 LINKEDIN_KEYWORDS = ["AI Engineer", "Agentic AI", "ML Engineer"]
 TARGET_LOCATIONS = ["Germany", "Munich", "Berlin", "Frankfurt", "Stuttgart", "Remote"]
 
@@ -266,10 +285,11 @@ def run() -> list[dict]:
 
     # --- Arbeitsagentur ---
     t_section = time.time()
-    print(f"[{_ts()}][Agent 1] -- Arbeitsagentur ({len(ARBEITSAGENTUR_KEYWORDS)} keywords) --")
-    for keyword in ARBEITSAGENTUR_KEYWORDS:
-        all_jobs += scrape_arbeitsagentur(keyword)
-    print(f"[{_ts()}][Agent 1] Arbeitsagentur done — {_elapsed(t_section)}, {len(all_jobs)} jobs so far")
+    print(f"[{_ts()}][Agent 1] -- Arbeitsagentur (profession='{ARBEITSAGENTUR_PROFESSION}' + AI filter) --")
+    raw_aa = scrape_arbeitsagentur(ARBEITSAGENTUR_PROFESSION)
+    aa_jobs = [j for j in raw_aa if _is_ai_relevant(j)]
+    print(f"[{_ts()}][Agent 1] Arbeitsagentur filter: {len(raw_aa)} fetched → {len(aa_jobs)} AI-relevant ({_elapsed(t_section)})")
+    all_jobs += aa_jobs
 
     # --- LinkedIn ---
     t_section = time.time()
