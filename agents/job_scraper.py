@@ -8,6 +8,7 @@ Output: list of raw job dicts → passed to Agent 2 (cv_matcher)
 import os
 import re
 import json
+import time
 import hashlib
 import requests
 import psycopg2
@@ -15,6 +16,14 @@ import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv
 from apify_client import ApifyClient
+
+
+def _ts() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def _elapsed(t0: float) -> str:
+    return f"{time.time() - t0:.1f}s"
 
 load_dotenv()
 
@@ -69,21 +78,20 @@ def fetch_job_details(refnr: str) -> dict:
 
 
 def scrape_arbeitsagentur(keyword: str) -> list[dict]:
+    t0 = time.time()
     url = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
     headers = {"X-API-Key": ARBEITSAGENTUR_KEY}
-    params = {
-        "was": keyword,
-        "angebotsart": 1,
-        "page": 1,
-        "size": 25,
-    }
+    params = {"was": keyword, "angebotsart": 1, "page": 1, "size": 25}
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
+        results = data.get("stellenangebote", [])
+        print(f"[{_ts()}][Arbeitsagentur] '{keyword}': {len(results)} listings found, fetching details...")
         jobs = []
-        for item in data.get("stellenangebote", []):
+        for i, item in enumerate(results):
             refnr = item.get("refnr", "")
+            t_detail = time.time()
             details = fetch_job_details(refnr)
             apply_url = details["external_url"] or f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
             jobs.append({
@@ -96,25 +104,33 @@ def scrape_arbeitsagentur(keyword: str) -> list[dict]:
                 "source": "arbeitsagentur",
                 "date_posted": item.get("aktuelleVeroeffentlichungsdatum", ""),
             })
+            if (i + 1) % 5 == 0:
+                print(f"[{_ts()}][Arbeitsagentur] '{keyword}': {i+1}/{len(results)} details fetched ({_elapsed(t0)} total)")
+        print(f"[{_ts()}][Arbeitsagentur] '{keyword}': done — {len(jobs)} jobs in {_elapsed(t0)}")
         return jobs
     except Exception as e:
-        print(f"[Arbeitsagentur] Error for '{keyword}': {e}")
+        print(f"[{_ts()}][Arbeitsagentur] ERROR for '{keyword}' after {_elapsed(t0)}: {e}")
         return []
 
 
 def scrape_apify_linkedin(keyword: str) -> list[dict]:
     if not APIFY_TOKEN_PUBLIC:
-        print("[LinkedIn] No APIFY_TOKEN_PUBLIC — skipping")
+        print(f"[{_ts()}][LinkedIn] No APIFY_TOKEN_PUBLIC — skipping")
         return []
+    t0 = time.time()
     search_url = (
         "https://www.linkedin.com/jobs/search/?"
         + urllib.parse.urlencode({**LINKEDIN_BASE_PARAMS, "keywords": keyword})
     )
+    print(f"[{_ts()}][LinkedIn] '{keyword}': starting Apify actor run...")
     try:
         client = ApifyClient(APIFY_TOKEN_PUBLIC)
         run = client.actor("curious_coder/linkedin-jobs-scraper").call(
-            run_input={"urls": [search_url], "count": 15}
+            run_input={"urls": [search_url], "count": 15},
+            timeout_secs=300,
         )
+        status = run.get("status", "?")
+        print(f"[{_ts()}][LinkedIn] '{keyword}': actor finished — status={status} ({_elapsed(t0)})")
         jobs = []
         for item in client.dataset(run["defaultDatasetId"]).iterate_items():
             location = item.get("location", "") or ""
@@ -135,10 +151,10 @@ def scrape_apify_linkedin(keyword: str) -> list[dict]:
                 "source": "linkedin",
                 "date_posted": item.get("postedAt", "") or "",
             })
-        print(f"[Apify/LinkedIn] '{keyword}': {len(jobs)} jobs")
+        print(f"[{_ts()}][LinkedIn] '{keyword}': {len(jobs)} jobs collected (total {_elapsed(t0)})")
         return jobs
     except Exception as e:
-        print(f"[Apify/LinkedIn] Error for '{keyword}': {e}")
+        print(f"[{_ts()}][LinkedIn] ERROR for '{keyword}' after {_elapsed(t0)}: {e}")
         return []
 
 
@@ -203,23 +219,26 @@ def fetch_indeed_description(url: str) -> str:
 
 def scrape_apify_indeed() -> list[dict]:
     if not APIFY_TOKEN:
-        print("[Indeed] No APIFY_TOKEN — skipping")
+        print(f"[{_ts()}][Indeed] No APIFY_TOKEN — skipping")
         return []
     client = ApifyClient(APIFY_TOKEN)
     jobs = []
     for keyword in INDEED_KEYWORDS:
-        print(f"[Indeed] Scraping '{keyword}' via Apify actor...")
+        t0 = time.time()
+        print(f"[{_ts()}][Indeed] '{keyword}': starting Apify actor run...")
         try:
             run = client.actor("wannabe/indeed-scraper-de").call(
                 run_input={"keyword": keyword, "location": "Germany", "maxResults": 5},
                 timeout_secs=600,
             )
+            status = run.get("status", "?")
+            print(f"[{_ts()}][Indeed] '{keyword}': actor finished — status={status} ({_elapsed(t0)})")
             batch = []
             for item in client.dataset(run["defaultDatasetId"]).iterate_items():
                 pub = item.get("date_posted", "")
                 if pub and str(pub).lstrip("-").isdigit():
                     ts = int(pub)
-                    if ts > 1e10:  # milliseconds
+                    if ts > 1e10:
                         ts //= 1000
                     pub = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
                 batch.append({
@@ -232,34 +251,49 @@ def scrape_apify_indeed() -> list[dict]:
                     "date_posted": pub,
                     "source": "indeed",
                 })
-            # Enrich with full descriptions (plain HTTP — no Scrappey cost)
-            enriched = 0
-            for job in batch:
-                full_desc = fetch_indeed_description(job["url"])
-                if full_desc:
-                    job["description"] = full_desc
-                    enriched += 1
+            print(f"[{_ts()}][Indeed] '{keyword}': {len(batch)} jobs from dataset (total {_elapsed(t0)})")
             jobs += batch
-            print(f"[Indeed] '{keyword}': {len(batch)} jobs, {enriched} with full descriptions")
         except Exception as e:
-            print(f"[Indeed] Error for '{keyword}': {e}")
+            print(f"[{_ts()}][Indeed] ERROR for '{keyword}' after {_elapsed(t0)}: {e}")
     return jobs
 
 
 def run() -> list[dict]:
-    print(f"[Agent 1] Starting job scrape at {datetime.now().isoformat()}")
+    t_start = time.time()
+    print(f"[{_ts()}][Agent 1] ===== START =====")
+
     all_jobs = []
 
+    # --- Arbeitsagentur ---
+    t_section = time.time()
+    print(f"[{_ts()}][Agent 1] -- Arbeitsagentur ({len(ARBEITSAGENTUR_KEYWORDS)} keywords) --")
     for keyword in ARBEITSAGENTUR_KEYWORDS:
         all_jobs += scrape_arbeitsagentur(keyword)
+    print(f"[{_ts()}][Agent 1] Arbeitsagentur done — {_elapsed(t_section)}, {len(all_jobs)} jobs so far")
 
+    # --- LinkedIn ---
+    t_section = time.time()
+    print(f"[{_ts()}][Agent 1] -- LinkedIn ({len(LINKEDIN_KEYWORDS)} keywords) --")
+    linkedin_jobs = []
     for keyword in LINKEDIN_KEYWORDS:
-        all_jobs += scrape_apify_linkedin(keyword)
+        linkedin_jobs += scrape_apify_linkedin(keyword)
+    all_jobs += linkedin_jobs
+    print(f"[{_ts()}][Agent 1] LinkedIn done — {_elapsed(t_section)}, {len(linkedin_jobs)} jobs, {len(all_jobs)} total")
 
-    all_jobs += scrape_apify_indeed()
+    # --- Indeed ---
+    t_section = time.time()
+    print(f"[{_ts()}][Agent 1] -- Indeed ({len(INDEED_KEYWORDS)} keywords) --")
+    indeed_jobs = scrape_apify_indeed()
+    all_jobs += indeed_jobs
+    print(f"[{_ts()}][Agent 1] Indeed done — {_elapsed(t_section)}, {len(indeed_jobs)} jobs, {len(all_jobs)} total")
 
+    # --- Dedup + Save ---
+    t_section = time.time()
+    print(f"[{_ts()}][Agent 1] -- Deduplicating and saving to DB --")
     new_jobs = deduplicate_and_save(all_jobs)
-    print(f"[Agent 1] Found {len(all_jobs)} total, {len(new_jobs)} new jobs")
+    print(f"[{_ts()}][Agent 1] DB save done — {_elapsed(t_section)}")
+
+    print(f"[{_ts()}][Agent 1] ===== DONE — {len(all_jobs)} scraped, {len(new_jobs)} new, total elapsed: {_elapsed(t_start)} =====")
     return new_jobs
 
 
