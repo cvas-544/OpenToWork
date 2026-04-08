@@ -212,7 +212,7 @@ def scrape_apify_indeed() -> list[dict]:
         try:
             run = client.actor("wannabe/indeed-scraper-de").call(
                 run_input={"keyword": keyword, "location": "Germany", "maxResults": 5},
-                timeout_secs=300,
+                timeout_secs=600,
             )
             batch = []
             for item in client.dataset(run["defaultDatasetId"]).iterate_items():
