@@ -33,7 +33,7 @@ APIFY_TOKEN_PUBLIC = os.environ.get("APIFY_TOKEN_PUBLIC", "")  # public account 
 ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche")
 
 ARBEITSAGENTUR_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "KI", "KI-Engineer", "AI", "KI Entwickler", "Agentic AI"]
-LINKEDIN_KEYWORDS = ["AI Engineer", "ML Engineer", "Machine Learning", "Agentic AI", "AI Architect", "AI", "ML", "AI/ML"]
+LINKEDIN_KEYWORDS = ["AI Engineer", "Agentic AI", "ML Engineer"]
 TARGET_LOCATIONS = ["Germany", "Munich", "Berlin", "Frankfurt", "Stuttgart", "Remote"]
 
 # Base LinkedIn search filters (copied from manual search — swap keywords per run)
