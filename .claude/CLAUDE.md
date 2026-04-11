@@ -269,7 +269,7 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 - **n8n workflow JSON**: fixed malformed Agent 4 node, added run_id query param, timeout per agent
 - **run_logger.py**: fixed UTC datetime (timezone.utc)
 - **Indeed scraper live**: `wannabe/indeed-scraper-de` (ID: 9qhb5j6V4P6hNBKWF) build 0.1.26 — Scrappey for search, AlterLab for detail page descriptions
-- **Indeed keywords**: `["AI Engineer", "Agentic AI", "KI", "AI"]` — 5 jobs/keyword
+- **Indeed keywords**: `["AI Engineer"×2, "Agentic AI"×2, "KI"×2, "AI"×4]` — 10 jobs/run total (was 20)
 - **Scrapper dashboard tab**: top 3 glass cards (Arbeitsagentur/LinkedIn/Indeed job counts) + bottom line chart (14-day timeline per scraper), `/data/scraper-stats` endpoint
 - **Indeed dashboard fixes**: purple "Indeed" tag, correct apply button label, Unix timestamp → date conversion (backfilled 55 jobs)
 - **EC2 container fix**: was running without volume mount — fixed via `docker compose up --force-recreate agents`
@@ -283,8 +283,8 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 - Current build: 0.1.26
 - Search pages: Scrappey (`SCRAPPEY_API_KEY` in Apify actor env) — 4 credits/request, `proxyCountry: Germany`
 - Detail pages: AlterLab (`ALTERLAB_API_KEY` in Apify actor env) — $0.00250/job
-- Keywords: `["AI Engineer", "Agentic AI", "KI", "AI"]` — 5 jobs/keyword = 20 detail fetches/run
-- Cost per run: 16 Scrappey credits (search) + 20 AlterLab requests (descriptions)
+- Keywords: `["AI Engineer"×2, "Agentic AI"×2, "KI"×2, "AI"×4]` — 10 detail fetches/run (was 20)
+- Cost per run: ~10 Scrappey credits (search) + 10 AlterLab requests (~$0.025)
 - AlterLab key: `sk_live_4e4fnazj7dgm_...` (in Apify actor env as `ALTERLAB_API_KEY`)
 - Scrappey key: updated 2026-04-05
 
@@ -328,4 +328,4 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## Last Updated
-2026-04-08 (Session 6 cont.) — Full pipeline working end-to-end. Arbeitsagentur switched to profession search (Softwareentwickler/in) + word-boundary AI filter (zero LLM cost). Indeed actor fixed (added Dockerfile + requirements.txt). Agent 1 timing logs added. LinkedIn keywords reduced to 3. Job board search expanded to title/company/city. n8n HTTP node timeouts set to 1800000ms for Agent 1 + 2.
+2026-04-11 — Indeed scraper cut to 10 jobs/run (was 20): AI Engineer×2, Agentic AI×2, KI×2, AI×4. Overview "Daily Jobs Found" graph now shows all-time data (was last 7 days). EC2 updated and restarted.
