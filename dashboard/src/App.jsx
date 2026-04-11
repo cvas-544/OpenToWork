@@ -238,7 +238,7 @@ const Overview = () => {
     <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 14 }}>
       {/* Trend chart */}
       <Card style={{ padding: "24px 28px" }}>
-        <Label>Daily Jobs Found — This Week</Label>
+        <Label>Daily Jobs Found — All Time</Label>
         <ResponsiveContainer width="100%" height={120}>
           <AreaChart data={trend}>
             <defs>
@@ -247,7 +247,7 @@ const Overview = () => {
                 <stop offset="95%" stopColor={T.orange} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <XAxis dataKey="day" tick={{ fill: T.gray400, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
+            <XAxis dataKey="day" tick={{ fill: T.gray400, fontSize: 10, fontFamily: "DM Mono" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
             <Tooltip contentStyle={{ background: "#fff", border: `1px solid ${T.gray200}`, borderRadius: 12, fontSize: 11, color: T.black, fontFamily: "DM Mono", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
             <Area type="monotone" dataKey="jobs" stroke={T.orange} fill="url(#og)" strokeWidth={2.5} dot={false} />
           </AreaChart>
@@ -421,7 +421,7 @@ const JobsBoard = () => {
     else if (locationFilter && locationFilter !== "All locations") {
       if (!j.location?.toLowerCase().includes(locationFilter.toLowerCase())) return false;
     }
-    const ref = j.date_posted ? new Date(j.date_posted) : null;
+    const ref = j.scraped_at ? new Date(j.scraped_at) : null;
     if (dateRange === "today") {
       if (!ref || isNaN(ref) || ref < today()) return false;
     } else if (dateRange === "3") {
@@ -1792,7 +1792,7 @@ const AutomationLogs = () => {
   const fmt = (iso) => {
     if (!iso) return "—";
     const d = new Date(iso);
-    return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
+    return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
   };
 
   const duration = (start, end) => {

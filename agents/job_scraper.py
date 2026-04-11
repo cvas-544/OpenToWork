@@ -205,7 +205,12 @@ def deduplicate_and_save(jobs: list[dict]) -> list[dict]:
     return new_jobs
 
 
-INDEED_KEYWORDS = ["AI Engineer", "Agentic AI", "KI", "AI"]
+INDEED_KEYWORDS = [
+    ("AI Engineer", 2),
+    ("Agentic AI", 2),
+    ("KI", 2),
+    ("AI", 4),
+]
 
 INDEED_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
@@ -242,12 +247,12 @@ def scrape_apify_indeed() -> list[dict]:
         return []
     client = ApifyClient(APIFY_TOKEN)
     jobs = []
-    for keyword in INDEED_KEYWORDS:
+    for keyword, max_results in INDEED_KEYWORDS:
         t0 = time.time()
         print(f"[{_ts()}][Indeed] '{keyword}': starting Apify actor run...")
         try:
             run = client.actor("wannabe/indeed-scraper-de").call(
-                run_input={"keyword": keyword, "location": "Germany", "maxResults": 5},
+                run_input={"keyword": keyword, "location": "Germany", "maxResults": max_results},
                 timeout_secs=600,
             )
             status = run.get("status", "?")

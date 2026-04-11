@@ -476,12 +476,11 @@ def get_stats():
     """)
     status_counts = {r["status"]: r["count"] for r in cur.fetchall()}
 
-    # Daily trend — last 7 days
+    # Daily trend — all time
     cur.execute("""
-        SELECT TO_CHAR(scraped_at, 'Dy') AS day, COUNT(*) AS jobs
+        SELECT TO_CHAR(DATE(scraped_at), 'DD Mon') AS day, COUNT(*) AS jobs
         FROM job_listings
-        WHERE scraped_at >= NOW() - INTERVAL '7 days'
-        GROUP BY TO_CHAR(scraped_at, 'Dy'), DATE(scraped_at)
+        GROUP BY DATE(scraped_at)
         ORDER BY DATE(scraped_at)
     """)
     trend = [dict(r) for r in cur.fetchall()]
