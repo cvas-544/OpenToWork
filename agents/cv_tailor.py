@@ -172,10 +172,10 @@ def copy_assets(output_dir: Path):
                 shutil.copy2(src, dst)
 
 
-def run(job_id: int, include_cover_letter: bool = True,
-        skills_to_add: list = None, skills_to_remove: list = None) -> dict:
-    print(f"[Agent 7] Fetching job ID {job_id}...")
-    job = fetch_job(job_id)
+def run_from_job(job: dict, include_cover_letter: bool = True,
+                 skills_to_add: list = None, skills_to_remove: list = None,
+                 cover_letter_text: str = None) -> dict:
+    """Core tailoring logic — works with any job dict (from DB or inline)."""
     print(f"[Agent 7] Job: {job['title']} @ {job['company']}")
 
     folder_name = sanitize_folder_name(job["company"], job["title"])
@@ -186,7 +186,7 @@ def run(job_id: int, include_cover_letter: bool = True,
     print("[Agent 7] Reading base CV...")
     cv_tex = read_base_cv()
 
-    add = skills_to_add if skills_to_add is not None else job["missing_skills"]
+    add = skills_to_add if skills_to_add is not None else job.get("missing_skills", [])
     remove = skills_to_remove if skills_to_remove is not None else []
     print(f"[Agent 7] Skills to add: {add}")
     print(f"[Agent 7] Skills to remove: {remove}")
@@ -199,8 +199,12 @@ def run(job_id: int, include_cover_letter: bool = True,
 
     cover_letter_path = None
     if include_cover_letter:
-        print("[Agent 7] Generating cover letter...")
-        cover_letter = generate_cover_letter(job)
+        if cover_letter_text:
+            print("[Agent 7] Using pre-approved cover letter text (Agent 8)...")
+            cover_letter = cover_letter_text
+        else:
+            print("[Agent 7] Generating cover letter (basic fallback)...")
+            cover_letter = generate_cover_letter(job)
         cover_letter_path = output_dir / "cover_letter.tex"
         cover_letter_path.write_text(cover_letter, encoding="utf-8")
         print(f"[Agent 7] Cover letter saved → {cover_letter_path}")
@@ -208,18 +212,25 @@ def run(job_id: int, include_cover_letter: bool = True,
     print("[Agent 7] Copying CV assets (fonts, images)...")
     copy_assets(output_dir)
 
-    result = {
+    print("[Agent 7] Done ✅")
+    return {
         "status": "ok",
-        "job_id": job_id,
+        "job_id": job.get("id"),
         "job_title": job["title"],
         "company": job["company"],
         "folder": str(output_dir),
         "cv_path": str(cv_path),
         "cover_letter_path": str(cover_letter_path) if cover_letter_path else None,
-        "missing_skills_added": job["missing_skills"],
+        "missing_skills_added": job.get("missing_skills", []),
     }
-    print(f"[Agent 7] Done ✅")
-    return result
+
+
+def run(job_id: int, include_cover_letter: bool = True,
+        skills_to_add: list = None, skills_to_remove: list = None,
+        cover_letter_text: str = None) -> dict:
+    print(f"[Agent 7] Fetching job ID {job_id}...")
+    job = fetch_job(job_id)
+    return run_from_job(job, include_cover_letter, skills_to_add, skills_to_remove, cover_letter_text)
 
 
 if __name__ == "__main__":

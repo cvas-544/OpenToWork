@@ -277,6 +277,15 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 - **Apify token split**: `APIFY_TOKEN` (private account, Indeed actor) + `APIFY_TOKEN_PUBLIC` (public account, LinkedIn)
 - **Agent 2 fix**: Claude was silently failing (no Anthropic credits) → credits topped up 2026-04-07; llm_client.py now surfaces exact Claude error reason in failure message
 - **llm_client.py**: added `ANTHROPIC_API_KEY` presence check — raises immediately instead of falling back to Ollama
+- **Manual Applications (My Applications tab)**: new `manual_applications` DB table (migration 004) + 4 API endpoints (CRUD + status patch) + `ManualTracker` dashboard component. Status → Interview auto-triggers Agent 4. Stats endpoint now counts both `applications` + `manual_applications` in Applied/Interviews/pipeline.
+- **My Applications split-panel**: clicking any stat card (Applied/Interview/Rejected/Offer) opens a Jobs Board-style split view — left list filtered by status, right resizable detail panel with company avatar, description, notes, status-move buttons, delete. Breadcrumb bar lets you switch between statuses without returning to overview. All Applications flat list on overview for quick access.
+- **Agent 8 Cover Letter Generator**: `agents/cover_letter_agent.py` — generate_cover_letter + review_cover_letter (7 dimensions, threshold 9.0) + generate_with_review (max 2 iterations). Profile + voice rules embedded as constants. Model: claude-sonnet-4-6 → llama3 fallback.
+- **Cover Letter API endpoints** (local only): `POST /cv/cover-letter/preview` (job_id) · `POST /cv/cover-letter/approve` (job_id + letter_text → Awesome-CV ZIP) · `POST /cv/cover-letter/preview-manual` (title/company/description) · `POST /cv/cover-letter/approve-manual`
+- **CV Tailor refactor**: `run_from_job(job_dict)` core extracted from `run(job_id)` — enables manual app tailoring without DB job_id. `TailorRequest` now accepts optional `cover_letter_text`.
+- **Manual app endpoints**: `POST /cv/tailor/preview-manual` · `POST /cv/tailor-manual` (4 total manual variants)
+- **Jobs Board CV Tailor modal extended**: "Include cover letter" toggle ON → "Preview Cover Letter" button → Agent 8 runs → scorecard bars (7 dims) + letter preview + Re-run / Approve & Generate ZIP flow.
+- **My Applications "Cover Letter" button**: dark button in detail panel → opens cover-letter-only modal (no CV skills) → Agent 8 generate → scorecard → Re-run / Approve & Save ZIP. Button turns green "✓ Letter Ready" after ZIP saved.
+- **Cover letter output**: `~/Desktop/job/{Company}-{Title}/coverletter.tex` + `~/Desktop/job/CoverLetter_{Company}_{Date}.zip` (Overleaf-ready, XeLaTeX)
 
 ### Indeed Scraper — Live ✅
 - Actor: `wannabe/indeed-scraper-de` (ID: 9qhb5j6V4P6hNBKWF) at `scrapers/apify-indeed/`
@@ -307,16 +316,26 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 | 4 — Interview Coach | Status → Interview | Sonnet → llama3 | On-demand only |
 | 5 — Reporter | Sunday 9am | Sonnet → llama3 | Weekly digest → reports/weekly/ |
 | 6 — App Tracker | Sunday 9am (after 5) | — | Follow-up reminders |
-| 7 — CV Tailor | Manual (local only) | Sonnet → deepseek-r1:8b | LaTeX output |
+| 7 — CV Tailor | Manual (local only) | Sonnet → deepseek-r1:8b | LaTeX output, `run_from_job()` core |
+| 8 — Cover Letter | Manual (local only) | Sonnet → llama3 | generate + self-review loop (max 2 passes, threshold 9.0) |
 
-### CV Tailor — Local Only (not on EC2)
-- `agents/cv_tailor.py` — Agent 7 (preview_changes + tailor_cv + generate_cover_letter)
-- `server/api.py` — POST /cv/tailor/preview · POST /cv/tailor · GET /cv/tailored/{job_id}
+### CV Tailor + Cover Letter — Local Only (not on EC2)
+- `agents/cv_tailor.py` — Agent 7: `preview_changes` + `tailor_cv` + `run_from_job(job_dict)` + `run(job_id)`
+- `agents/cover_letter_agent.py` — Agent 8: `generate_cover_letter` + `review_cover_letter` + `generate_with_review`
+- Profile + voice rules embedded as constants in Agent 8 (not runtime file reads)
+- `server/api.py` — 7 local endpoints: preview · tailor · tailored/{id} · cover-letter/preview · cover-letter/approve · preview-manual · tailor-manual · cover-letter/preview-manual · cover-letter/approve-manual
 - Base CV: `/Users/vasuchukka/Desktop/job/Base/main.tex`
-- Output: `/Users/vasuchukka/Desktop/job/{Company}-{Title}/`
+- Awesome-CV template: `~/Documents/Projects/Skills/coverLetter/template/base-CoverLetter/`
+- Output: `~/Desktop/job/{Company}-{Title}/` (cv.tex + coverletter.tex + assets + ZIP)
 - Dashboard: `.env.local` → `VITE_API_URL=http://localhost:8000`
 - Run locally: `venv/bin/uvicorn server.api:app --reload --port 8000`
 - Overleaf: compile with **XeLaTeX** (fontspec requires it)
+
+### LLM Backend — Local Models
+- Ollama running at `http://localhost:11434`
+- Available: `llama3:latest` (4.4GB) · `deepseek-r1:8b` (4.7GB) · `mistral:latest` (3.9GB) · `llama2:latest` (3.6GB)
+- **Next session**: consider pulling `gemma3:12b` for cover letter generation (better writing quality than llama3)
+- `USE_LOCAL_LLM` toggle planned — skip Claude API, go straight to Ollama for local-only agents
 
 ### Local Dev
 - Dashboard: http://localhost:3002
@@ -327,5 +346,15 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 
 ---
 
+## Planned: Session 5 — Cover Letter Agent
+Full spec: `.claude/cover-letter-integration.md`
+- Agent 8: `agents/cover_letter_agent.py` — modular profile template + self-review loop (max 2 passes, threshold 9.0/10)
+- 2 new API endpoints: `POST /cv/cover-letter/preview` + `POST /cv/cover-letter/approve`
+- Dashboard: extend CV Tailor modal with letter preview, scorecard, approve gate
+- Awesome-CV template integration for styled ZIP output
+- Optional: `cover_letter_drafts` DB table (migration 005)
+
+---
+
 ## Last Updated
-2026-04-11 — Indeed scraper cut to 10 jobs/run (was 20): AI Engineer×2, Agentic AI×2, KI×2, AI×4. Overview "Daily Jobs Found" graph now shows all-time data (was last 7 days). EC2 updated and restarted.
+2026-04-17 — Agent 8 Cover Letter Generator: generate + self-review loop + Awesome-CV ZIP output. Jobs Board CV Tailor modal extended with cover letter preview + scorecard. My Applications "Cover Letter" button (cover-letter-only flow, no CV tailoring). Manual app API variants (preview-manual, tailor-manual, cover-letter endpoints). cv_tailor.py refactored to run_from_job() core. Ollama models inventory noted. gemma3:12b planned for next session.

@@ -143,6 +143,38 @@ class TailorRequest(BaseModel):
     include_cover_letter: bool = True
     skills_to_add: List[str] = []
     skills_to_remove: List[str] = []
+    cover_letter_text: Optional[str] = None
+
+
+class CoverLetterPreviewRequest(BaseModel):
+    job_id: int
+
+
+class ManualTailorPreviewRequest(BaseModel):
+    title: str
+    company: str
+    description: str = ""
+
+
+class ManualTailorRequest(BaseModel):
+    title: str
+    company: str
+    description: str = ""
+    include_cover_letter: bool = True
+    skills_to_add: List[str] = []
+    skills_to_remove: List[str] = []
+    cover_letter_text: Optional[str] = None
+
+
+class CoverLetterApproveManualRequest(BaseModel):
+    title: str
+    company: str
+    letter_text: str
+
+
+class CoverLetterApproveRequest(BaseModel):
+    job_id: int
+    letter_text: str
 
 
 @app.post("/cv/tailor/preview")
@@ -161,8 +193,120 @@ def tailor_cv_preview(body: PreviewRequest):
 def tailor_cv_endpoint(body: TailorRequest):
     try:
         from agents.cv_tailor import run
-        result = run(body.job_id, body.include_cover_letter, body.skills_to_add, body.skills_to_remove)
+        result = run(
+            body.job_id,
+            body.include_cover_letter,
+            body.skills_to_add,
+            body.skills_to_remove,
+            body.cover_letter_text,
+        )
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cv/cover-letter/preview")
+def preview_cover_letter(body: CoverLetterPreviewRequest):
+    try:
+        from agents.cv_tailor import fetch_job
+        from agents.cover_letter_agent import generate_with_review
+        job = fetch_job(body.job_id)
+        result = generate_with_review(job, max_iterations=2)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cv/cover-letter/approve")
+def approve_cover_letter(body: CoverLetterApproveRequest):
+    import re
+    import shutil
+    import zipfile
+    from pathlib import Path
+    from datetime import date
+
+    try:
+        from agents.cv_tailor import fetch_job, sanitize_folder_name
+
+        job = fetch_job(body.job_id)
+        folder_name = sanitize_folder_name(job["company"], job["title"])
+        output_dir = Path("/Users/vasuchukka/Desktop/job") / folder_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        template_dir = Path("/Users/vasuchukka/Documents/Projects/Skills/coverLetter/template/base-CoverLetter")
+        template_tex = (template_dir / "coverletter.tex").read_text(encoding="utf-8")
+
+        # LaTeX-escape the letter body text
+        def latex_escape(text: str) -> str:
+            replacements = [
+                ("&", r"\&"), ("%", r"\%"), ("#", r"\#"), ("_", r"\_"),
+                ("~", r"\textasciitilde{}"), ("^", r"\textasciicircum{}"),
+            ]
+            for src, dst in replacements:
+                text = text.replace(src, dst)
+            return text
+
+        escaped_body = latex_escape(body.letter_text)
+        # Convert plain paragraphs to LaTeX paragraphs (blank line = paragraph break)
+        paragraphs = [p.strip() for p in escaped_body.split("\n\n") if p.strip()]
+        latex_body = "\n\n".join(paragraphs)
+
+        company_name = latex_escape(job["company"])
+        role_title = latex_escape(job["title"])
+
+        # Inject recipient
+        template_tex = re.sub(
+            r"\\recipient\s*\{[^}]*\}\s*\{[^}]*\}",
+            f"\\\\recipient\n  {{{company_name}}}\n  {{Germany\\\\\\n}}",
+            template_tex,
+            flags=re.DOTALL,
+        )
+        # Inject title
+        template_tex = re.sub(
+            r"\\lettertitle\{[^}]*\}",
+            f"\\\\lettertitle{{Subject: Application for {role_title}}}",
+            template_tex,
+        )
+        # Inject body between \begin{cvletter} and \end{cvletter}
+        template_tex = re.sub(
+            r"\\begin\{cvletter\}.*?\\end\{cvletter\}",
+            f"\\\\begin{{cvletter}}\n{latex_body}\n\\\\end{{cvletter}}",
+            template_tex,
+            flags=re.DOTALL,
+        )
+
+        # Write coverletter.tex
+        cl_path = output_dir / "coverletter.tex"
+        cl_path.write_text(template_tex, encoding="utf-8")
+
+        # Copy template assets
+        for asset in ["awesome-cv.cls", "fontawesome.sty"]:
+            src = template_dir / asset
+            dst = output_dir / asset
+            if src.exists() and not dst.exists():
+                shutil.copy2(src, dst)
+        fonts_src = template_dir / "fonts"
+        fonts_dst = output_dir / "fonts"
+        if fonts_src.exists() and not fonts_dst.exists():
+            shutil.copytree(fonts_src, fonts_dst)
+
+        # Create ZIP
+        company_slug = re.sub(r"[^\w]", "_", job["company"])[:30]
+        today_str = date.today().isoformat()
+        zip_name = f"CoverLetter_{company_slug}_{today_str}.zip"
+        zip_path = output_dir.parent / zip_name
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in output_dir.rglob("*"):
+                if f.is_file() and f.suffix in {".tex", ".cls", ".sty", ".otf", ".ttf"}:
+                    zf.write(f, f.relative_to(output_dir.parent))
+
+        return {
+            "status": "ok",
+            "folder": str(output_dir),
+            "coverletter_tex": str(cl_path),
+            "zip_path": str(zip_path),
+            "zip_name": zip_name,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -179,6 +323,134 @@ def get_tailored_files(job_id: int):
             return {"exists": False, "folder": str(output_dir), "files": []}
         files = [f.name for f in output_dir.iterdir() if f.is_file()]
         return {"exists": True, "folder": str(output_dir), "files": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Manual App CV Tailor Endpoints ────────────────────────────────────────────
+
+def _build_manual_job(title: str, company: str, description: str) -> dict:
+    return {
+        "id": None,
+        "title": title,
+        "company": company,
+        "description": description,
+        "missing_skills": [],
+        "matched_skills": [],
+        "fit_reason": "",
+    }
+
+
+@app.post("/cv/tailor/preview-manual")
+def tailor_cv_preview_manual(body: ManualTailorPreviewRequest):
+    try:
+        from agents.cv_tailor import read_base_cv, preview_changes
+        job = _build_manual_job(body.title, body.company, body.description)
+        cv_tex = read_base_cv()
+        result = preview_changes(job, cv_tex)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cv/tailor-manual")
+def tailor_cv_manual_endpoint(body: ManualTailorRequest):
+    try:
+        from agents.cv_tailor import run_from_job
+        job = _build_manual_job(body.title, body.company, body.description)
+        result = run_from_job(job, body.include_cover_letter, body.skills_to_add, body.skills_to_remove, body.cover_letter_text)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cv/cover-letter/preview-manual")
+def preview_cover_letter_manual(body: ManualTailorPreviewRequest):
+    try:
+        from agents.cover_letter_agent import generate_with_review
+        job = _build_manual_job(body.title, body.company, body.description)
+        result = generate_with_review(job, max_iterations=2)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cv/cover-letter/approve-manual")
+def approve_cover_letter_manual(body: CoverLetterApproveManualRequest):
+    import re
+    import shutil
+    import zipfile
+    from pathlib import Path
+    from datetime import date
+
+    try:
+        from agents.cv_tailor import sanitize_folder_name
+
+        folder_name = sanitize_folder_name(body.company, body.title)
+        output_dir = Path("/Users/vasuchukka/Desktop/job") / folder_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        template_dir = Path("/Users/vasuchukka/Documents/Projects/Skills/coverLetter/template/base-CoverLetter")
+        template_tex = (template_dir / "coverletter.tex").read_text(encoding="utf-8")
+
+        def latex_escape(text: str) -> str:
+            for src, dst in [("&", r"\&"), ("%", r"\%"), ("#", r"\#"), ("_", r"\_"),
+                              ("~", r"\textasciitilde{}"), ("^", r"\textasciicircum{}")]:
+                text = text.replace(src, dst)
+            return text
+
+        escaped_body = latex_escape(body.letter_text)
+        paragraphs = [p.strip() for p in escaped_body.split("\n\n") if p.strip()]
+        latex_body = "\n\n".join(paragraphs)
+
+        company_name = latex_escape(body.company)
+        role_title = latex_escape(body.title)
+
+        template_tex = re.sub(
+            r"\\recipient\s*\{[^}]*\}\s*\{[^}]*\}",
+            f"\\\\recipient\n  {{{company_name}}}\n  {{Germany\\\\\\n}}",
+            template_tex, flags=re.DOTALL,
+        )
+        template_tex = re.sub(
+            r"\\lettertitle\{[^}]*\}",
+            f"\\\\lettertitle{{Subject: Application for {role_title}}}",
+            template_tex,
+        )
+        template_tex = re.sub(
+            r"\\begin\{cvletter\}.*?\\end\{cvletter\}",
+            f"\\\\begin{{cvletter}}\n{latex_body}\n\\\\end{{cvletter}}",
+            template_tex, flags=re.DOTALL,
+        )
+
+        cl_path = output_dir / "coverletter.tex"
+        cl_path.write_text(template_tex, encoding="utf-8")
+
+        for asset in ["awesome-cv.cls", "fontawesome.sty"]:
+            src = template_dir / asset
+            dst = output_dir / asset
+            if src.exists() and not dst.exists():
+                shutil.copy2(src, dst)
+        fonts_src = template_dir / "fonts"
+        fonts_dst = output_dir / "fonts"
+        if fonts_src.exists() and not fonts_dst.exists():
+            shutil.copytree(fonts_src, fonts_dst)
+
+        company_slug = re.sub(r"[^\w]", "_", body.company)[:30]
+        today_str = date.today().isoformat()
+        zip_name = f"CoverLetter_{company_slug}_{today_str}.zip"
+        zip_path = output_dir.parent / zip_name
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in output_dir.rglob("*"):
+                if f.is_file() and f.suffix in {".tex", ".cls", ".sty", ".otf", ".ttf"}:
+                    zf.write(f, f.relative_to(output_dir.parent))
+
+        return {
+            "status": "ok",
+            "folder": str(output_dir),
+            "coverletter_tex": str(cl_path),
+            "zip_path": str(zip_path),
+            "zip_name": zip_name,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -468,10 +740,13 @@ def get_stats():
     """)
     today = cur.fetchone()["today"]
 
-    # Applied + Interviews (from applications table)
+    # Applied + Interviews (from applications + manual_applications)
     cur.execute("""
-        SELECT status, COUNT(*) AS count FROM applications
-        WHERE status IN ('applied', 'interview', 'offer')
+        SELECT status, COUNT(*) AS count FROM (
+            SELECT status FROM applications WHERE status IN ('applied', 'interview', 'offer')
+            UNION ALL
+            SELECT status FROM manual_applications WHERE status IN ('applied', 'interview', 'offer')
+        ) combined
         GROUP BY status
     """)
     status_counts = {r["status"]: r["count"] for r in cur.fetchall()}
@@ -485,14 +760,18 @@ def get_stats():
     """)
     trend = [dict(r) for r in cur.fetchall()]
 
-    # Pipeline funnel
+    # Pipeline funnel (scraped + manual combined)
     cur.execute("""
         SELECT
           (SELECT COUNT(*) FROM job_listings) AS found,
-          COUNT(*) FILTER (WHERE status = 'applied') AS applied,
-          COUNT(*) FILTER (WHERE status = 'interview') AS interview,
-          COUNT(*) FILTER (WHERE status = 'offer') AS offer
-        FROM applications
+          SUM(CASE WHEN status = 'applied' THEN 1 ELSE 0 END) AS applied,
+          SUM(CASE WHEN status = 'interview' THEN 1 ELSE 0 END) AS interview,
+          SUM(CASE WHEN status = 'offer' THEN 1 ELSE 0 END) AS offer
+        FROM (
+            SELECT status FROM applications
+            UNION ALL
+            SELECT status FROM manual_applications
+        ) combined
     """)
     funnel = cur.fetchone()
 
@@ -565,6 +844,114 @@ def get_scraper_stats():
         },
         "timeline": timeline,
     }
+
+
+# ── Manual Applications ───────────────────────────────────────────────────────
+
+class ManualAppBody(BaseModel):
+    title: str
+    company: str
+    description: Optional[str] = None
+    url: Optional[str] = None
+    notes: Optional[str] = None
+    status: str = "applied"
+
+
+class ManualStatusBody(BaseModel):
+    status: str
+    notes: Optional[str] = None
+
+
+@app.post("/manual-applications")
+def create_manual_application(body: ManualAppBody):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        INSERT INTO manual_applications (title, company, description, url, status, notes, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+        RETURNING *
+        """,
+        (body.title, body.company, body.description, body.url, body.status, body.notes),
+    )
+    row = dict(cur.fetchone())
+    conn.commit()
+    cur.close()
+    conn.close()
+    row["created_at"] = str(row["created_at"]) if row["created_at"] else None
+    row["updated_at"] = str(row["updated_at"]) if row["updated_at"] else None
+    return {"status": "ok", "application": row}
+
+
+@app.get("/manual-applications")
+def list_manual_applications():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM manual_applications ORDER BY created_at DESC")
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    for r in rows:
+        r["created_at"] = str(r["created_at"]) if r["created_at"] else None
+        r["updated_at"] = str(r["updated_at"]) if r["updated_at"] else None
+    return {"applications": rows}
+
+
+@app.patch("/manual-applications/{app_id}/status")
+def update_manual_application_status(app_id: int, body: ManualStatusBody):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        UPDATE manual_applications
+        SET status = %s, notes = COALESCE(NULLIF(%s, ''), notes), updated_at = NOW()
+        WHERE id = %s
+        RETURNING *
+        """,
+        (body.status, body.notes or "", app_id),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Application not found")
+    row = dict(row)
+    row["created_at"] = str(row["created_at"]) if row["created_at"] else None
+    row["updated_at"] = str(row["updated_at"]) if row["updated_at"] else None
+
+    # Auto-trigger Agent 4 when moved to Interview
+    if body.status.lower() == "interview":
+        import threading
+        def run_agent4_async():
+            try:
+                rid = str(uuid.uuid4())
+                logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach")
+                logger.start()
+                from agents.interview_coach import run
+                prep = run()
+                logger.success(details={"prep_sets": len(prep)})
+                print(f"[API] Agent 4 triggered for manual app {app_id} — {len(prep)} prep set(s)")
+            except Exception as e:
+                print(f"[API] Agent 4 failed for manual app {app_id}: {e}")
+        threading.Thread(target=run_agent4_async, daemon=True).start()
+        row["interview_prep"] = "generating"
+
+    return {"status": "ok", "application": row}
+
+
+@app.delete("/manual-applications/{app_id}")
+def delete_manual_application(app_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM manual_applications WHERE id = %s", (app_id,))
+    deleted = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"status": "ok"}
 
 
 @app.get("/data/automation-logs")

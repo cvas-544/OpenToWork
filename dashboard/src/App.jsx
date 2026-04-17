@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, fetchInterviewPrep, fetchScraperStats } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
@@ -147,6 +147,7 @@ const agents = [
 const navItems = [
   { id: "overview", label: "Overview", icon: "○" },
   { id: "jobs", label: "Jobs Board", icon: "◈" },
+  { id: "tracker", label: "My Applications", icon: "◻" },
   { id: "map", label: "Map View", icon: "◎" },
   { id: "gaps", label: "Skill Gaps", icon: "△" },
   { id: "timeline", label: "Your Projects", icon: "▭" },
@@ -378,11 +379,17 @@ const JobsBoard = () => {
   const [localRemove, setLocalRemove] = useState([]);
   const [addInput, setAddInput] = useState("");
   const [removeInput, setRemoveInput] = useState("");
+  const [clPreview, setClPreview] = useState(null);       // { letter_text, scorecard, iterations, passes }
+  const [clLoading, setClLoading] = useState(false);
+  const [clApproving, setClApproving] = useState(false);
+  const [clError, setClError] = useState(null);
 
   const effectiveStatus = (j) => statusMap[j.id] ?? j.status ?? "new";
 
   const handleOpenTailorModal = async (job) => {
     setPreviewLoading(true);
+    setClPreview(null);
+    setClError(null);
     try {
       const preview = await previewTailorCV(job.id);
       setLocalAdd(preview.skills_to_add || []);
@@ -397,12 +404,47 @@ const JobsBoard = () => {
   const handleRunTailor = async () => {
     setTailoring(true);
     try {
-      const result = await tailorCV(selected.id, includeCoverLetter, localAdd, localRemove);
+      const approvedText = clPreview?.letter_text || null;
+      const result = await tailorCV(selected.id, includeCoverLetter, localAdd, localRemove, approvedText);
       setTailored(prev => ({ ...prev, [selected.id]: result }));
       setShowTailorModal(false);
+      setClPreview(null);
     } catch (e) {
       console.error("[Tailor CV]", e);
     }
+    setTailoring(false);
+  };
+
+  const handlePreviewCoverLetter = async () => {
+    setClLoading(true);
+    setClError(null);
+    try {
+      const result = await previewCoverLetter(selected.id);
+      setClPreview(result);
+    } catch (e) {
+      console.error("[CL Preview]", e);
+      setClError("Failed to generate cover letter. Check API connection.");
+    }
+    setClLoading(false);
+  };
+
+  const handleApproveCoverLetter = async () => {
+    if (!clPreview) return;
+    setClApproving(true);
+    setClError(null);
+    try {
+      await approveCoverLetter(selected.id, clPreview.letter_text);
+      // Now run full tailoring with the approved letter text
+      setTailoring(true);
+      const result = await tailorCV(selected.id, true, localAdd, localRemove, clPreview.letter_text);
+      setTailored(prev => ({ ...prev, [selected.id]: result }));
+      setShowTailorModal(false);
+      setClPreview(null);
+    } catch (e) {
+      console.error("[CL Approve]", e);
+      setClError("Approve failed. Check API connection.");
+    }
+    setClApproving(false);
     setTailoring(false);
   };
 
@@ -728,15 +770,96 @@ const JobsBoard = () => {
           </div>
 
           {/* Cover letter toggle */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-            <input type="checkbox" id="cover-letter-modal" checked={includeCoverLetter} onChange={e => setIncludeCoverLetter(e.target.checked)} style={{ accentColor: T.orange, cursor: "pointer", width: 14, height: 14 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: includeCoverLetter ? 12 : 16 }}>
+            <input type="checkbox" id="cover-letter-modal" checked={includeCoverLetter} onChange={e => { setIncludeCoverLetter(e.target.checked); if (!e.target.checked) { setClPreview(null); setClError(null); } }} style={{ accentColor: T.orange, cursor: "pointer", width: 14, height: 14 }} />
             <label htmlFor="cover-letter-modal" style={{ fontSize: 11, color: T.gray400, cursor: "pointer", fontFamily: "'DM Mono', monospace", userSelect: "none" }}>Include cover letter</label>
           </div>
 
-          {/* Run button */}
-          <button onClick={handleRunTailor} disabled={tailoring} style={{ width: "100%", padding: "14px", borderRadius: 12, background: T.orange, border: "none", color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: "'DM Mono', monospace", cursor: tailoring ? "wait" : "pointer", opacity: tailoring ? 0.8 : 1, boxShadow: `0 4px 16px rgba(232,98,26,0.3)` }}>
-            {tailoring ? "⏳ Tailoring CV..." : "✂ Run Tailoring"}
-          </button>
+          {/* Cover letter Agent 8 section */}
+          {includeCoverLetter && (
+            <div style={{ marginBottom: 16 }}>
+              {/* Preview button */}
+              {!clPreview && (
+                <button
+                  onClick={handlePreviewCoverLetter}
+                  disabled={clLoading}
+                  style={{ width: "100%", padding: "10px", borderRadius: 10, background: clLoading ? T.gray200 : "#1a1a2e", border: "none", color: "#fff", fontWeight: 700, fontSize: 12, fontFamily: "'DM Mono', monospace", cursor: clLoading ? "wait" : "pointer", marginBottom: 8 }}
+                >
+                  {clLoading ? "⏳ Generating letter..." : "✉ Preview Cover Letter"}
+                </button>
+              )}
+
+              {clError && (
+                <div style={{ fontSize: 11, color: T.red, fontFamily: "'DM Mono', monospace", marginBottom: 8, padding: "8px 12px", background: T.redLight, borderRadius: 8 }}>{clError}</div>
+              )}
+
+              {/* Letter preview + scorecard */}
+              {clPreview && (
+                <div style={{ border: `1px solid ${T.gray200}`, borderRadius: 12, padding: 16, marginBottom: 12, background: "#fafafa" }}>
+                  {/* Score header */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.gray600, fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em", textTransform: "uppercase" }}>Cover Letter Preview</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: clPreview.passes ? "#16a34a" : T.orange, fontFamily: "'DM Mono', monospace" }}>{clPreview.scorecard?.overall?.toFixed(1)}/10</span>
+                      <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: clPreview.passes ? "#dcfce7" : "#fff3e0", color: clPreview.passes ? "#16a34a" : T.orange, fontFamily: "'DM Mono', monospace", fontWeight: 700 }}>{clPreview.passes ? "PASSES" : "REVIEW"}</span>
+                    </div>
+                  </div>
+
+                  {/* Scorecard bars */}
+                  <div style={{ marginBottom: 12 }}>
+                    {clPreview.scorecard?.scores && Object.entries(clPreview.scorecard.scores).map(([dim, score]) => (
+                      <div key={dim} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", width: 110, flexShrink: 0 }}>{dim.replace(/_/g, " ")}</div>
+                        <div style={{ flex: 1, height: 5, background: T.gray200, borderRadius: 99, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${score * 10}%`, background: score >= 8 ? "#16a34a" : score >= 6 ? T.orange : T.red, borderRadius: 99 }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: T.gray600, fontFamily: "'DM Mono', monospace", width: 16, textAlign: "right" }}>{score}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Letter text (scrollable) */}
+                  <div style={{ fontSize: 11, color: T.gray600, fontFamily: "'Sora', sans-serif", lineHeight: 1.7, maxHeight: 200, overflowY: "auto", whiteSpace: "pre-wrap", padding: "10px 12px", background: "#fff", borderRadius: 8, border: `1px solid ${T.gray200}`, marginBottom: 10 }}>
+                    {clPreview.letter_text}
+                  </div>
+
+                  {/* Suggestions */}
+                  {clPreview.scorecard?.suggestions?.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      {clPreview.scorecard.suggestions.map((s, i) => (
+                        <div key={i} style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 2 }}>• {s}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Re-run / Approve */}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={handlePreviewCoverLetter}
+                      disabled={clLoading}
+                      style={{ flex: 1, padding: "9px", borderRadius: 9, background: "#fff", border: `1px solid ${T.gray200}`, color: T.gray600, fontWeight: 700, fontSize: 11, fontFamily: "'DM Mono', monospace", cursor: clLoading ? "wait" : "pointer" }}
+                    >
+                      {clLoading ? "⏳ Regenerating..." : "↺ Re-run"}
+                    </button>
+                    <button
+                      onClick={handleApproveCoverLetter}
+                      disabled={clApproving || tailoring}
+                      style={{ flex: 2, padding: "9px", borderRadius: 9, background: "#16a34a", border: "none", color: "#fff", fontWeight: 700, fontSize: 11, fontFamily: "'DM Mono', monospace", cursor: (clApproving || tailoring) ? "wait" : "pointer", opacity: (clApproving || tailoring) ? 0.8 : 1 }}
+                    >
+                      {clApproving || tailoring ? "⏳ Generating ZIP..." : "✓ Approve & Generate ZIP"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Run button — shown only when cover letter is OFF, or as secondary when no preview yet */}
+          {(!includeCoverLetter || !clPreview) && (
+            <button onClick={handleRunTailor} disabled={tailoring || clLoading} style={{ width: "100%", padding: "14px", borderRadius: 12, background: T.orange, border: "none", color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: "'DM Mono', monospace", cursor: (tailoring || clLoading) ? "wait" : "pointer", opacity: (tailoring || clLoading) ? 0.8 : 1, boxShadow: `0 4px 16px rgba(232,98,26,0.3)` }}>
+              {tailoring ? "⏳ Tailoring CV..." : includeCoverLetter ? "✂ Tailor CV only (skip letter preview)" : "✂ Run Tailoring"}
+            </button>
+          )}
         </div>
       </div>
     )}
@@ -2195,6 +2318,514 @@ const ScraperStats = () => {
   );
 };
 
+// ─── Manual Applications Tracker ─────────────────────────────────────────────
+const STATUS_OPTS = ["applied", "interview", "rejected", "offer"];
+const STATUS_COLORS = {
+  applied:   { bg: T.orangeXLight, color: T.orange },
+  interview: { bg: T.amberLight,   color: T.amber },
+  rejected:  { bg: T.redLight,     color: T.red },
+  offer:     { bg: T.greenLight,   color: T.green },
+};
+
+const inputStyle = {
+  width: "100%", padding: "10px 14px", borderRadius: 10,
+  border: `1px solid #E8E8E8`, background: "rgba(255,255,255,0.8)",
+  fontSize: 13, fontFamily: "'Sora', sans-serif", color: "#0D0D0D",
+  outline: "none", transition: "border-color 0.15s", boxSizing: "border-box",
+};
+
+const ManualTracker = () => {
+  const [apps, setApps] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  // form
+  const [form, setForm] = useState({ title: "", company: "", description: "", url: "", notes: "" });
+  const [formError, setFormError] = useState("");
+
+  // split-panel view: null = overview, "applied"|"interview"|"rejected"|"offer" = panel open
+  const [panelStatus, setPanelStatus] = useState(null);
+  const [selected, setSelected] = useState(null);
+
+  // cover letter modal state
+  const [showCLModal, setShowCLModal] = useState(false);
+  const [clTarget, setClTarget] = useState(null);       // the app being processed
+  const [clPreview, setClPreview] = useState(null);     // { letter_text, scorecard, passes, iterations }
+  const [clLoading, setClLoading] = useState(false);
+  const [clApproving, setClApproving] = useState(false);
+  const [clDone, setClDone] = useState({});             // { [appId]: true } after ZIP generated
+  const [clError, setClError] = useState(null);
+
+  const handleOpenCLModal = async (app) => {
+    setClTarget(app);
+    setClPreview(null);
+    setClError(null);
+    setShowCLModal(true);
+  };
+
+  const handleGenerateCoverLetter = async () => {
+    if (!clTarget) return;
+    setClLoading(true);
+    setClError(null);
+    try {
+      const result = await previewCoverLetterManual(clTarget.title, clTarget.company, clTarget.description || "");
+      setClPreview(result);
+    } catch (e) {
+      console.error("[CL Preview manual]", e);
+      setClError("Failed to generate cover letter. Check API connection.");
+    }
+    setClLoading(false);
+  };
+
+  const handleApproveCoverLetter = async () => {
+    if (!clPreview || !clTarget) return;
+    setClApproving(true);
+    setClError(null);
+    try {
+      await approveCoverLetterManual(clTarget.title, clTarget.company, clPreview.letter_text);
+      setClDone(prev => ({ ...prev, [clTarget.id]: true }));
+      setShowCLModal(false);
+      setClPreview(null);
+    } catch (e) {
+      console.error("[CL Approve manual]", e);
+      setClError("Approve failed. Check API connection.");
+    }
+    setClApproving(false);
+    setTailoring(false);
+  };
+
+  // resizable right panel
+  const [detailWidth, setDetailWidth] = useState(() => Math.floor((window.innerWidth - 180) * 0.44));
+  const isResizing = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isResizing.current) return;
+      const dx = startX.current - e.clientX;
+      setDetailWidth(Math.min(Math.max(startWidth.current + dx, 280), 820));
+    };
+    const onUp = () => { isResizing.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
+
+  const load = () => {
+    setLoading(true);
+    fetchManualApplications().then(data => {
+      setApps(data || []);
+      setLoading(false);
+    });
+  };
+  useEffect(() => { load(); }, []);
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    if (!form.title.trim() || !form.company.trim()) { setFormError("Title and company required."); return; }
+    setFormError("");
+    setSaving(true);
+    try {
+      await createManualApplication({
+        title: form.title.trim(), company: form.company.trim(),
+        description: form.description.trim() || null,
+        url: form.url.trim() || null,
+        notes: form.notes.trim() || null,
+        status: "applied",
+      });
+      setForm({ title: "", company: "", description: "", url: "", notes: "" });
+      load();
+    } catch { setFormError("Failed to save. Check API connection."); }
+    finally { setSaving(false); }
+  };
+
+  const handleStatusChange = async (appId, newStatus) => {
+    setApps(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus } : a));
+    if (selected?.id === appId) setSelected(s => ({ ...s, status: newStatus }));
+    try { await updateManualApplicationStatus(appId, newStatus); }
+    catch { load(); }
+  };
+
+  const handleDelete = async (appId) => {
+    try {
+      await deleteManualApplication(appId);
+      setApps(prev => prev.filter(a => a.id !== appId));
+      if (selected?.id === appId) setSelected(null);
+      setConfirmDelete(null);
+    } catch { console.warn("Delete failed"); }
+  };
+
+  const grouped = STATUS_OPTS.reduce((acc, s) => { acc[s] = apps.filter(a => a.status === s); return acc; }, {});
+  const fmtDate = (str) => { if (!str) return "—"; const d = new Date(str); return isNaN(d) ? str.slice(0,10) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); };
+
+  // ── Overview mode ────────────────────────────────────────────────────────────
+  if (!panelStatus) return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Add form */}
+      <Card style={{ padding: "28px 32px" }}>
+        <Label>Track New Application</Label>
+        <form onSubmit={handleAdd}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, marginBottom: 4 }}>JOB TITLE *</div>
+              <input style={inputStyle} placeholder="e.g. AI Engineer" value={form.title}
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                onFocus={e => e.target.style.borderColor = T.orange} onBlur={e => e.target.style.borderColor = T.gray200} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, marginBottom: 4 }}>COMPANY *</div>
+              <input style={inputStyle} placeholder="e.g. Allianz" value={form.company}
+                onChange={e => setForm(f => ({ ...f, company: e.target.value }))}
+                onFocus={e => e.target.style.borderColor = T.orange} onBlur={e => e.target.style.borderColor = T.gray200} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, marginBottom: 4 }}>JOB LINK (OPTIONAL)</div>
+            <input style={inputStyle} placeholder="https://..." value={form.url}
+              onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
+              onFocus={e => e.target.style.borderColor = T.orange} onBlur={e => e.target.style.borderColor = T.gray200} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, marginBottom: 4 }}>JOB DESCRIPTION</div>
+            <textarea style={{ ...inputStyle, height: 110, resize: "vertical" }} placeholder="Paste the job description here..."
+              value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              onFocus={e => e.target.style.borderColor = T.orange} onBlur={e => e.target.style.borderColor = T.gray200} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, marginBottom: 4 }}>NOTES</div>
+            <input style={inputStyle} placeholder="e.g. Referred by a friend, deadline next Friday..." value={form.notes}
+              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              onFocus={e => e.target.style.borderColor = T.orange} onBlur={e => e.target.style.borderColor = T.gray200} />
+          </div>
+          {formError && <div style={{ fontSize: 11, color: T.red, fontFamily: "'DM Mono', monospace", marginBottom: 12 }}>{formError}</div>}
+          <button type="submit" disabled={saving} style={{
+            padding: "11px 28px", borderRadius: 10, border: "none",
+            background: saving ? T.gray200 : T.orange, color: saving ? T.gray400 : "#fff",
+            fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 13,
+            cursor: saving ? "not-allowed" : "pointer", transition: "background 0.15s",
+          }}>{saving ? "Saving..." : "Track Application"}</button>
+        </form>
+      </Card>
+
+      {/* Stat cards — clickable */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        {STATUS_OPTS.map(s => {
+          const sc = STATUS_COLORS[s];
+          const count = grouped[s].length;
+          return (
+            <Card key={s} onClick={() => { setPanelStatus(s); setSelected(null); }} style={{
+              padding: "20px 24px", cursor: "pointer",
+              transition: "all 0.2s cubic-bezier(0.34,1.56,0.64,1)",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = `0 6px 24px ${sc.color}22`; e.currentTarget.style.borderColor = sc.color; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; e.currentTarget.style.borderColor = ""; }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase", color: T.gray400 }}>{s}</div>
+                <span style={{ fontSize: 9, fontFamily: "'DM Mono', monospace", color: sc.color, background: sc.bg, padding: "2px 7px", borderRadius: 99 }}>View →</span>
+              </div>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 52, lineHeight: 1, color: sc.color }}>{count}</div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* All applications flat list (small) */}
+      {loading ? (
+        <Card style={{ padding: "32px", textAlign: "center" }}>
+          <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: T.gray400 }}>Loading...</div>
+        </Card>
+      ) : apps.length === 0 ? (
+        <EmptyState message="No applications tracked yet" sub="Add your first one above" />
+      ) : (
+        <Card style={{ padding: "20px 24px" }}>
+          <Label>All Applications ({apps.length})</Label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {apps.map(app => {
+              const sc = STATUS_COLORS[app.status] || STATUS_COLORS.applied;
+              return (
+                <div key={app.id} onClick={() => { setPanelStatus(app.status); setSelected(app); }}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, cursor: "pointer", background: T.gray100, border: `1px solid ${T.gray200}`, transition: "all 0.15s" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = sc.color; e.currentTarget.style.background = sc.bg; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = T.gray200; e.currentTarget.style.background = T.gray100; }}
+                >
+                  <span style={{ fontSize: 9, fontFamily: "'DM Mono', monospace", padding: "3px 9px", borderRadius: 99, background: sc.bg, color: sc.color, textTransform: "capitalize", flexShrink: 0, fontWeight: 600 }}>{app.status}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{app.title}</div>
+                    <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>{app.company} · {fmtDate(app.created_at)}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>→</div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+
+  // ── Split-panel mode ─────────────────────────────────────────────────────────
+  const filtered = apps.filter(a => a.status === panelStatus);
+  const sc = STATUS_COLORS[panelStatus];
+
+  return (
+    <>
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, height: "calc(100vh - 140px)" }}>
+      {/* Breadcrumb bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexShrink: 0 }}>
+        <button onClick={() => { setPanelStatus(null); setSelected(null); }} style={{
+          background: T.gray100, border: `1px solid ${T.gray200}`, borderRadius: 8,
+          padding: "6px 14px", fontSize: 11, fontFamily: "'DM Mono', monospace",
+          color: T.gray600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+        }}>← Overview</button>
+        <div style={{ width: 1, height: 16, background: T.gray200 }} />
+        {STATUS_OPTS.map(s => {
+          const ssc = STATUS_COLORS[s];
+          const active = s === panelStatus;
+          return (
+            <button key={s} onClick={() => { setPanelStatus(s); setSelected(null); }} style={{
+              padding: "5px 14px", borderRadius: 99, fontSize: 10, fontFamily: "'DM Mono', monospace",
+              cursor: "pointer", transition: "all 0.15s",
+              background: active ? ssc.color : T.gray100,
+              border: `1px solid ${active ? ssc.color : T.gray200}`,
+              color: active ? "#fff" : T.gray600,
+            }}>
+              {s.charAt(0).toUpperCase() + s.slice(1)} ({grouped[s].length})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Panel */}
+      <div style={{ display: "flex", gap: 14, flex: 1, minHeight: 0 }}>
+        {/* Left — list */}
+        <Card style={{ flex: 1, padding: "20px", overflow: "auto", minWidth: 0 }}>
+          {filtered.length === 0 ? (
+            <EmptyState message={`No ${panelStatus} applications`} sub="Add one from the form above" />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {filtered.map(app => {
+                const isSel = selected?.id === app.id;
+                return (
+                  <div key={app.id} onClick={() => setSelected(app)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 14, padding: "14px 16px",
+                      borderRadius: 12, cursor: "pointer",
+                      background: isSel ? sc.bg : T.gray100,
+                      border: `1px solid ${isSel ? sc.color : T.gray200}`,
+                      transition: "all 0.18s",
+                    }}
+                    onMouseEnter={e => { if (!isSel) { e.currentTarget.style.borderColor = sc.color; e.currentTarget.style.background = sc.bg + "88"; } }}
+                    onMouseLeave={e => { if (!isSel) { e.currentTarget.style.borderColor = T.gray200; e.currentTarget.style.background = T.gray100; } }}
+                  >
+                    {/* Company initial avatar */}
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                      background: isSel ? sc.color : T.gray200,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "'Bebas Neue', sans-serif", fontSize: 18, color: isSel ? "#fff" : T.gray600,
+                    }}>{app.company?.[0]?.toUpperCase() || "?"}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{app.title}</div>
+                      <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>{app.company} · {fmtDate(app.created_at)}</div>
+                    </div>
+                    {app.url && <div style={{ fontSize: 10, color: sc.color, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>↗</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        {/* Right — detail (resizable) */}
+        <div style={{ position: "relative", width: detailWidth, flexShrink: 0 }}>
+          {/* Resize handle */}
+          <div onMouseDown={e => { isResizing.current = true; startX.current = e.clientX; startWidth.current = detailWidth; e.preventDefault(); }}
+            style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 3, height: 32, borderRadius: 99, background: T.gray200 }} />
+          </div>
+
+          <Card style={{ width: "100%", height: "100%", padding: 0, overflow: "hidden", boxSizing: "border-box" }}>
+            {!selected ? (
+              <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+                <div style={{ fontSize: 32, color: T.gray200 }}>◻</div>
+                <div style={{ fontSize: 12, color: T.gray400, fontFamily: "'DM Mono', monospace", textAlign: "center" }}>Select an application<br/>to see details</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto", padding: "28px", boxSizing: "border-box" }}>
+                {/* Header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexShrink: 0 }}>
+                  <div>
+                    {/* Company avatar large */}
+                    <div style={{
+                      width: 56, height: 56, borderRadius: 14, marginBottom: 14,
+                      background: `linear-gradient(135deg, ${sc.color}22, ${sc.color}44)`,
+                      border: `1px solid ${sc.color}44`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, color: sc.color,
+                    }}>{selected.company?.[0]?.toUpperCase() || "?"}</div>
+                    <div style={{ fontFamily: "'Bebas Neue', 'Anton', sans-serif", fontSize: 26, lineHeight: 1.1, color: T.black, letterSpacing: "-0.01em" }}>{selected.title}</div>
+                    <div style={{ fontSize: 13, color: T.gray600, fontFamily: "'DM Mono', monospace", marginTop: 4 }}>{selected.company}</div>
+                    <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 2 }}>Added {fmtDate(selected.created_at)}</div>
+                  </div>
+                  <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 18 }}>✕</button>
+                </div>
+
+                {/* Status + URL + Tailor row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, flexShrink: 0, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", padding: "5px 12px", borderRadius: 99, background: sc.bg, color: sc.color, fontWeight: 600, textTransform: "capitalize" }}>{selected.status}</span>
+                  {selected.url && (
+                    <a href={selected.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.orange, fontFamily: "'DM Mono', monospace", textDecoration: "none", padding: "5px 12px", borderRadius: 99, background: T.orangeXLight, border: `1px solid ${T.orange}33` }}>
+                      View Job ↗
+                    </a>
+                  )}
+                  <button
+                    onClick={() => handleOpenCLModal(selected)}
+                    style={{
+                      fontSize: 11, padding: "5px 14px", borderRadius: 99, cursor: "pointer",
+                      fontFamily: "'DM Mono', monospace", fontWeight: 700,
+                      background: clDone[selected.id] ? "#dcfce7" : "#1a1a2e",
+                      border: "none", color: clDone[selected.id] ? "#16a34a" : "#fff",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {clDone[selected.id] ? "✓ Letter Ready" : "✉ Cover Letter"}
+                  </button>
+                </div>
+
+                {/* Change status */}
+                <div style={{ marginBottom: 20, flexShrink: 0 }}>
+                  <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: T.gray400, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Move to</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {STATUS_OPTS.filter(s => s !== selected.status).map(s => {
+                      const ssc = STATUS_COLORS[s];
+                      return (
+                        <button key={s} onClick={() => handleStatusChange(selected.id, s)} style={{
+                          fontSize: 10, padding: "5px 14px", borderRadius: 99, cursor: "pointer",
+                          fontFamily: "'DM Mono', monospace", background: ssc.bg,
+                          border: `1px solid ${ssc.color}44`, color: ssc.color,
+                          transition: "all 0.15s",
+                        }}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>
+                      );
+                    })}
+                  </div>
+                  {selected.status === "interview" && (
+                    <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, background: T.amberLight, border: `1px solid ${T.amber}44` }}>
+                      <div style={{ fontSize: 11, color: T.amber, fontFamily: "'DM Mono', monospace" }}>Interview Prep generating — check Interview Prep tab soon.</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Description */}
+                {selected.description && (
+                  <div style={{ marginBottom: 20, flexShrink: 0 }}>
+                    <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: T.gray400, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Job Description</div>
+                    <div style={{ fontSize: 12, color: T.gray600, fontFamily: "'Sora', sans-serif", lineHeight: 1.7, whiteSpace: "pre-wrap", background: T.gray100, borderRadius: 10, padding: "14px 16px" }}>{selected.description}</div>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {selected.notes && (
+                  <div style={{ marginBottom: 20, flexShrink: 0 }}>
+                    <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: T.gray400, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Notes</div>
+                    <div style={{ fontSize: 12, color: T.gray600, fontFamily: "'Sora', sans-serif", background: T.gray100, borderRadius: 10, padding: "12px 16px" }}>{selected.notes}</div>
+                  </div>
+                )}
+
+                {/* Delete */}
+                <div style={{ marginTop: "auto", paddingTop: 16, borderTop: `1px solid ${T.gray200}`, flexShrink: 0 }}>
+                  {confirmDelete === selected.id ? (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => handleDelete(selected.id)} style={{ fontSize: 11, padding: "7px 16px", borderRadius: 8, border: "none", background: T.red, color: "#fff", cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>Confirm Delete</button>
+                      <button onClick={() => setConfirmDelete(null)} style={{ fontSize: 11, padding: "7px 16px", borderRadius: 8, border: `1px solid ${T.gray200}`, background: T.white, color: T.gray600, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDelete(selected.id)} style={{ fontSize: 11, padding: "7px 16px", borderRadius: 8, border: `1px solid ${T.gray200}`, background: T.white, color: T.gray400, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>Delete Application</button>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+
+    {/* ── Cover Letter Modal ── */}
+    {showCLModal && clTarget && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ background: "#fff", borderRadius: 20, padding: 32, width: 540, maxHeight: "85vh", overflow: "auto", position: "relative", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+          <button onClick={() => setShowCLModal(false)} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", fontSize: 18, color: T.gray400, cursor: "pointer" }}>✕</button>
+          <div style={{ fontSize: 16, fontWeight: 800, color: T.black, fontFamily: "'Sora', sans-serif", marginBottom: 4 }}>Cover Letter</div>
+          <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 24 }}>{clTarget.title} @ {clTarget.company}</div>
+
+          {/* Generate button (shown when no preview yet) */}
+          {!clPreview && (
+            <button onClick={handleGenerateCoverLetter} disabled={clLoading} style={{ width: "100%", padding: "14px", borderRadius: 12, background: clLoading ? T.gray200 : "#1a1a2e", border: "none", color: clLoading ? T.gray400 : "#fff", fontWeight: 700, fontSize: 13, fontFamily: "'DM Mono', monospace", cursor: clLoading ? "wait" : "pointer", marginBottom: 8 }}>
+              {clLoading ? "⏳ Generating letter..." : "✉ Generate Cover Letter"}
+            </button>
+          )}
+
+          {clError && <div style={{ fontSize: 11, color: T.red, fontFamily: "'DM Mono', monospace", marginBottom: 8, padding: "8px 12px", background: T.redLight, borderRadius: 8 }}>{clError}</div>}
+
+          {/* Letter preview + scorecard */}
+          {clPreview && (
+            <div style={{ border: `1px solid ${T.gray200}`, borderRadius: 12, padding: 16, background: "#fafafa" }}>
+              {/* Score header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.gray600, fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em", textTransform: "uppercase" }}>Preview · {clPreview.iterations} iteration{clPreview.iterations > 1 ? "s" : ""}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: clPreview.passes ? "#16a34a" : T.orange, fontFamily: "'DM Mono', monospace" }}>{clPreview.scorecard?.overall?.toFixed(1)}/10</span>
+                  <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: clPreview.passes ? "#dcfce7" : "#fff3e0", color: clPreview.passes ? "#16a34a" : T.orange, fontFamily: "'DM Mono', monospace", fontWeight: 700 }}>{clPreview.passes ? "PASSES" : "REVIEW"}</span>
+                </div>
+              </div>
+
+              {/* Scorecard bars */}
+              <div style={{ marginBottom: 12 }}>
+                {clPreview.scorecard?.scores && Object.entries(clPreview.scorecard.scores).map(([dim, score]) => (
+                  <div key={dim} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <div style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", width: 110, flexShrink: 0 }}>{dim.replace(/_/g, " ")}</div>
+                    <div style={{ flex: 1, height: 5, background: T.gray200, borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${score * 10}%`, background: score >= 8 ? "#16a34a" : score >= 6 ? T.orange : T.red, borderRadius: 99 }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: T.gray600, fontFamily: "'DM Mono', monospace", width: 16, textAlign: "right" }}>{score}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Letter text */}
+              <div style={{ fontSize: 11, color: T.gray600, fontFamily: "'Sora', sans-serif", lineHeight: 1.7, maxHeight: 200, overflowY: "auto", whiteSpace: "pre-wrap", padding: "10px 12px", background: "#fff", borderRadius: 8, border: `1px solid ${T.gray200}`, marginBottom: 10 }}>
+                {clPreview.letter_text}
+              </div>
+
+              {/* Suggestions */}
+              {clPreview.scorecard?.suggestions?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  {clPreview.scorecard.suggestions.map((s, i) => (
+                    <div key={i} style={{ fontSize: 10, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 2 }}>• {s}</div>
+                  ))}
+                </div>
+              )}
+
+              {/* Re-run / Approve */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleGenerateCoverLetter} disabled={clLoading} style={{ flex: 1, padding: "9px", borderRadius: 9, background: "#fff", border: `1px solid ${T.gray200}`, color: T.gray600, fontWeight: 700, fontSize: 11, fontFamily: "'DM Mono', monospace", cursor: clLoading ? "wait" : "pointer" }}>
+                  {clLoading ? "⏳ Regenerating..." : "↺ Re-run"}
+                </button>
+                <button onClick={handleApproveCoverLetter} disabled={clApproving} style={{ flex: 2, padding: "9px", borderRadius: 9, background: "#16a34a", border: "none", color: "#fff", fontWeight: 700, fontSize: 11, fontFamily: "'DM Mono', monospace", cursor: clApproving ? "wait" : "pointer", opacity: clApproving ? 0.8 : 1 }}>
+                  {clApproving ? "⏳ Saving ZIP..." : "✓ Approve & Save ZIP"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+    </>
+  );
+};
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [active, setActive] = useState(() => localStorage.getItem("activeTab") || "overview");
@@ -2232,6 +2863,7 @@ export default function App() {
   const renderPage = () => {
     if (active === "overview") return <Overview />;
     if (active === "jobs") return <JobsBoard />;
+    if (active === "tracker") return <ManualTracker />;
     if (active === "map") return <MapView />;
     if (active === "gaps") return <SkillGaps />;
     if (active === "timeline") return <YourProjects />;

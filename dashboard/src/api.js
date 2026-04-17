@@ -80,7 +80,7 @@ export async function previewTailorCV(jobId) {
   return await res.json();
 }
 
-export async function tailorCV(jobId, includeCoverLetter = true, skillsToAdd = [], skillsToRemove = []) {
+export async function tailorCV(jobId, includeCoverLetter = true, skillsToAdd = [], skillsToRemove = [], coverLetterText = null) {
   const res = await fetch(`${API_URL}/cv/tailor`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -89,9 +89,76 @@ export async function tailorCV(jobId, includeCoverLetter = true, skillsToAdd = [
       include_cover_letter: includeCoverLetter,
       skills_to_add: skillsToAdd,
       skills_to_remove: skillsToRemove,
+      cover_letter_text: coverLetterText,
     }),
   });
   if (!res.ok) throw new Error(`Tailor CV failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function previewTailorCVManual(title, company, description) {
+  const res = await fetch(`${API_URL}/cv/tailor/preview-manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, company, description }),
+  });
+  if (!res.ok) throw new Error(`Preview failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function tailorCVManual(title, company, description, includeCoverLetter = true, skillsToAdd = [], skillsToRemove = [], coverLetterText = null) {
+  const res = await fetch(`${API_URL}/cv/tailor-manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title, company, description,
+      include_cover_letter: includeCoverLetter,
+      skills_to_add: skillsToAdd,
+      skills_to_remove: skillsToRemove,
+      cover_letter_text: coverLetterText,
+    }),
+  });
+  if (!res.ok) throw new Error(`Tailor CV (manual) failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function previewCoverLetterManual(title, company, description) {
+  const res = await fetch(`${API_URL}/cv/cover-letter/preview-manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, company, description }),
+  });
+  if (!res.ok) throw new Error(`Cover letter preview (manual) failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function approveCoverLetterManual(title, company, letterText) {
+  const res = await fetch(`${API_URL}/cv/cover-letter/approve-manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, company, letter_text: letterText }),
+  });
+  if (!res.ok) throw new Error(`Cover letter approve (manual) failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function previewCoverLetter(jobId) {
+  const res = await fetch(`${API_URL}/cv/cover-letter/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId }),
+  });
+  if (!res.ok) throw new Error(`Cover letter preview failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function approveCoverLetter(jobId, letterText) {
+  const res = await fetch(`${API_URL}/cv/cover-letter/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId, letter_text: letterText }),
+  });
+  if (!res.ok) throw new Error(`Cover letter approve failed: ${res.status}`);
   return await res.json();
 }
 
@@ -131,6 +198,46 @@ export async function fetchScraperStats() {
     console.warn("[API] fetchScraperStats failed:", e.message);
     return null;
   }
+}
+
+export async function fetchManualApplications() {
+  try {
+    const res = await fetch(`${API_URL}/manual-applications`);
+    if (!res.ok) throw new Error("API error");
+    const data = await res.json();
+    return data.applications;
+  } catch (e) {
+    console.warn("[API] fetchManualApplications failed:", e.message);
+    return null;
+  }
+}
+
+export async function createManualApplication(payload) {
+  const res = await fetch(`${API_URL}/manual-applications`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Create failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function updateManualApplicationStatus(appId, status, notes = "") {
+  const res = await fetch(`${API_URL}/manual-applications/${appId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, notes }),
+  });
+  if (!res.ok) throw new Error(`Status update failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function deleteManualApplication(appId) {
+  const res = await fetch(`${API_URL}/manual-applications/${appId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+  return await res.json();
 }
 
 export async function updateSkills(skills) {
