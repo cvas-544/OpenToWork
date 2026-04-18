@@ -219,7 +219,5 @@ MIT
 
 Built by Vasu Chukka
 
-📬 vasu.chukka@outlook.com
+📬 chukka.vasu@outlook.com
 💻 https://www.linkedin.com/in/vasu-chukka-1a3569116/
-
----
