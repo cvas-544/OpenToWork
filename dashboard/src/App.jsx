@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication, fetchLLMMode, setLLMMode, updateApplicationStatus } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
@@ -451,6 +451,7 @@ const JobsBoard = () => {
   const setJobStatus = (jobId, status, e) => {
     e.stopPropagation();
     setStatusMap(prev => ({ ...prev, [jobId]: status }));
+    updateApplicationStatus(jobId, status);
   };
 
   const today = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
@@ -1875,6 +1876,80 @@ const Analytics = () => (
 );
 
 // ─── Automation Logs ──────────────────────────────────────────────────────────
+// ─── Agent Runner ─────────────────────────────────────────────────────────────
+const AGENTS = [
+  { id: 1, label: "Agent 1",  name: "Job Scraper",     endpoint: "/run/agent1", color: T.orange },
+  { id: 2, label: "Agent 2",  name: "CV Matcher",      endpoint: "/run/agent2", color: T.green  },
+  { id: 3, label: "Agent 3",  name: "Gap Analyst",     endpoint: "/run/agent3", color: T.amber  },
+  { id: 4, label: "Agent 4",  name: "Interview Coach", endpoint: "/run/agent4", color: "#8B5CF6" },
+  { id: 5, label: "Agent 5",  name: "Reporter",        endpoint: "/run/agent5", color: T.navy   },
+  { id: 6, label: "Agent 6",  name: "App Tracker",     endpoint: "/run/agent6", color: T.gray600 },
+];
+
+const AgentRunner = () => {
+  const { API } = useData();
+  const [running, setRunning] = useState({});   // { [agentId]: true }
+  const [results, setResults] = useState({});   // { [agentId]: { ok, msg } }
+
+  const runAgent = async (agent) => {
+    setRunning(p => ({ ...p, [agent.id]: true }));
+    setResults(p => ({ ...p, [agent.id]: null }));
+    try {
+      const res = await fetch(`${API}${agent.endpoint}`, { method: "POST" });
+      const data = await res.json();
+      const ok = res.ok && data.status !== "error";
+      const msg = ok
+        ? (data.result ? `${Array.isArray(data.result) ? data.result.length : ""} jobs processed`.trim() : "Done")
+        : (data.detail || data.error || "Failed");
+      setResults(p => ({ ...p, [agent.id]: { ok, msg } }));
+    } catch (e) {
+      setResults(p => ({ ...p, [agent.id]: { ok: false, msg: e.message } }));
+    }
+    setRunning(p => ({ ...p, [agent.id]: false }));
+  };
+
+  return (
+    <Card style={{ padding: "24px 28px", marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <Label>Run Agents</Label>
+        <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: T.gray400 }}>local · triggers pipeline steps manually</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        {AGENTS.map(agent => {
+          const isRunning = running[agent.id];
+          const result = results[agent.id];
+          return (
+            <div key={agent.id} style={{ border: `1px solid ${T.gray200}`, borderRadius: 12, padding: "14px 16px", background: T.gray100 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 9, fontFamily: "'DM Mono', monospace", fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: agent.color + "22", color: agent.color }}>{agent.label}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif" }}>{agent.name}</span>
+              </div>
+              <button
+                onClick={() => runAgent(agent)}
+                disabled={isRunning}
+                style={{
+                  width: "100%", padding: "8px", borderRadius: 8, border: "none",
+                  background: isRunning ? T.gray200 : agent.color,
+                  color: isRunning ? T.gray400 : "#fff",
+                  fontFamily: "'DM Mono', monospace", fontWeight: 700, fontSize: 11,
+                  cursor: isRunning ? "wait" : "pointer", transition: "all 0.15s",
+                }}
+              >
+                {isRunning ? "⏳ Running..." : "▶ Run"}
+              </button>
+              {result && (
+                <div style={{ marginTop: 8, fontSize: 10, fontFamily: "'DM Mono', monospace", color: result.ok ? T.green : T.red, lineHeight: 1.4 }}>
+                  {result.ok ? "✓" : "✗"} {result.msg}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+};
+
 const AutomationLogs = () => {
   const { API } = useData();
   const [runs, setRuns] = useState([]);
@@ -2350,18 +2425,91 @@ const ManualTracker = () => {
 
   // cover letter modal state
   const [showCLModal, setShowCLModal] = useState(false);
-  const [clTarget, setClTarget] = useState(null);       // the app being processed
-  const [clPreview, setClPreview] = useState(null);     // { letter_text, scorecard, passes, iterations }
+  const [clTarget, setClTarget] = useState(null);
+  const [clPreview, setClPreview] = useState(null);
   const [clLoading, setClLoading] = useState(false);
   const [clApproving, setClApproving] = useState(false);
-  const [clDone, setClDone] = useState({});             // { [appId]: true } after ZIP generated
+  const [clDone, setClDone] = useState({});
   const [clError, setClError] = useState(null);
+
+  // tailor CV modal state
+  const [showTailorModal, setShowTailorModal] = useState(false);
+  const [tailorTarget, setTailorTarget] = useState(null);
+  const [tailorPreview, setTailorPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [tailoring, setTailoring] = useState(false);
+  const [tailored, setTailored] = useState({});
+  const [localAdd, setLocalAdd] = useState([]);
+  const [localRemove, setLocalRemove] = useState([]);
+  const [includeCoverLetter, setIncludeCoverLetter] = useState(true);
+  const [tailorClPreview, setTailorClPreview] = useState(null);
+  const [tailorClLoading, setTailorClLoading] = useState(false);
+  const [tailorClApproving, setTailorClApproving] = useState(false);
+  const [tailorClError, setTailorClError] = useState(null);
 
   const handleOpenCLModal = async (app) => {
     setClTarget(app);
     setClPreview(null);
     setClError(null);
     setShowCLModal(true);
+  };
+
+  const handleOpenTailorModal = async (app) => {
+    setTailorTarget(app);
+    setTailorPreview(null);
+    setLocalAdd([]);
+    setLocalRemove([]);
+    setIncludeCoverLetter(true);
+    setTailorClPreview(null);
+    setTailorClError(null);
+    setShowTailorModal(true);
+    setPreviewLoading(true);
+    try {
+      const preview = await previewTailorCVManual(app.title, app.company, app.description || "");
+      setTailorPreview(preview);
+      setLocalAdd(preview?.skills_to_add || []);
+      setLocalRemove(preview?.skills_to_remove || []);
+    } catch (e) {
+      console.error("[Tailor Preview manual]", e);
+    }
+    setPreviewLoading(false);
+  };
+
+  const handleRunTailor = async () => {
+    if (!tailorTarget) return;
+    setTailoring(true);
+    try {
+      const result = await tailorCVManual(tailorTarget.title, tailorTarget.company, tailorTarget.description || "", includeCoverLetter, localAdd, localRemove, tailorClPreview?.letter_text || null);
+      setTailored(prev => ({ ...prev, [tailorTarget.id]: result }));
+      setShowTailorModal(false);
+    } catch (e) { console.error("[Tailor manual]", e); }
+    setTailoring(false);
+  };
+
+  const handleTailorPreviewCL = async () => {
+    if (!tailorTarget) return;
+    setTailorClLoading(true);
+    setTailorClError(null);
+    try {
+      const result = await previewCoverLetterManual(tailorTarget.title, tailorTarget.company, tailorTarget.description || "");
+      setTailorClPreview(result);
+    } catch (e) {
+      setTailorClError("Failed to generate cover letter. Check API connection.");
+    }
+    setTailorClLoading(false);
+  };
+
+  const handleTailorApproveWithLetter = async () => {
+    if (!tailorClPreview || !tailorTarget) return;
+    setTailorClApproving(true);
+    setTailoring(true);
+    try {
+      const result = await tailorCVManual(tailorTarget.title, tailorTarget.company, tailorTarget.description || "", true, localAdd, localRemove, tailorClPreview.letter_text);
+      setTailored(prev => ({ ...prev, [tailorTarget.id]: result }));
+      setShowTailorModal(false);
+    } catch (e) { setTailorClError("Failed to generate ZIP. Check API connection."); }
+    setTailorClApproving(false);
+    setTailoring(false);
   };
 
   const handleGenerateCoverLetter = async () => {
@@ -2392,7 +2540,6 @@ const ManualTracker = () => {
       setClError("Approve failed. Check API connection.");
     }
     setClApproving(false);
-    setTailoring(false);
   };
 
   // resizable right panel
@@ -2682,6 +2829,19 @@ const ManualTracker = () => {
                     </a>
                   )}
                   <button
+                    onClick={() => handleOpenTailorModal(selected)}
+                    style={{
+                      fontSize: 11, padding: "5px 14px", borderRadius: 99, cursor: "pointer",
+                      fontFamily: "'DM Mono', monospace", fontWeight: 700,
+                      background: tailored[selected.id] ? T.greenLight : T.orangeXLight,
+                      border: `1px solid ${tailored[selected.id] ? T.green : T.orange}44`,
+                      color: tailored[selected.id] ? T.green : T.orange,
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {tailored[selected.id] ? "✓ CV Tailored" : "✂ Tailor CV"}
+                  </button>
+                  <button
                     onClick={() => handleOpenCLModal(selected)}
                     style={{
                       fontSize: 11, padding: "5px 14px", borderRadius: 99, cursor: "pointer",
@@ -2751,6 +2911,92 @@ const ManualTracker = () => {
         </div>
       </div>
     </div>
+
+    {/* ── Tailor CV Modal ── */}
+    {showTailorModal && tailorTarget && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ background: "#fff", borderRadius: 20, padding: 32, width: 560, maxHeight: "88vh", overflow: "auto", position: "relative", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+          <button onClick={() => setShowTailorModal(false)} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", fontSize: 18, color: T.gray400, cursor: "pointer" }}>✕</button>
+          <div style={{ fontSize: 16, fontWeight: 800, color: T.black, fontFamily: "'Sora', sans-serif", marginBottom: 4 }}>CV Tailoring</div>
+          <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 24 }}>{tailorTarget.title} @ {tailorTarget.company}</div>
+
+          {previewLoading ? (
+            <div style={{ textAlign: "center", padding: "32px 0", color: T.gray400, fontFamily: "'DM Mono', monospace", fontSize: 12 }}>⏳ Analyzing job requirements...</div>
+          ) : tailorPreview ? (
+            <>
+              {/* Skills to add */}
+              {localAdd.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: T.gray400, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Skills to Add</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {localAdd.map(s => (
+                      <span key={s} onClick={() => setLocalAdd(prev => prev.filter(x => x !== s))} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 99, background: T.greenLight, color: T.green, cursor: "pointer", fontFamily: "'DM Mono', monospace", border: `1px solid ${T.green}44` }} title="Click to remove">+ {s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Skills to remove */}
+              {localRemove.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: T.gray400, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Skills to Remove <span style={{ color: T.gray400, fontWeight: 400 }}>(click to keep)</span></div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {localRemove.map(s => (
+                      <span key={s} onClick={() => setLocalRemove(prev => prev.filter(x => x !== s))} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 99, background: T.redLight, color: T.red, cursor: "pointer", fontFamily: "'DM Mono', monospace", border: `1px solid ${T.red}44` }} title="Click to keep">− {s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Cover letter toggle */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                <input type="checkbox" id="tailor-cl-manual" checked={includeCoverLetter} onChange={e => { setIncludeCoverLetter(e.target.checked); if (!e.target.checked) { setTailorClPreview(null); setTailorClError(null); } }} style={{ accentColor: T.orange, cursor: "pointer", width: 14, height: 14 }} />
+                <label htmlFor="tailor-cl-manual" style={{ fontSize: 11, color: T.gray400, cursor: "pointer", fontFamily: "'DM Mono', monospace", userSelect: "none" }}>Include cover letter</label>
+              </div>
+
+              {/* Cover letter preview section */}
+              {includeCoverLetter && (
+                <div style={{ marginBottom: 16 }}>
+                  <button onClick={handleTailorPreviewCL} disabled={tailorClLoading} style={{ padding: "8px 18px", borderRadius: 10, background: tailorClLoading ? T.gray200 : T.navy, border: "none", color: tailorClLoading ? T.gray400 : "#fff", fontWeight: 700, fontSize: 11, fontFamily: "'DM Mono', monospace", cursor: tailorClLoading ? "wait" : "pointer", marginBottom: 10 }}>
+                    {tailorClLoading ? "⏳ Generating letter..." : tailorClPreview ? "↺ Re-run Letter" : "✉ Preview Cover Letter"}
+                  </button>
+                  {tailorClPreview && (
+                    <div style={{ border: `1px solid ${T.gray200}`, borderRadius: 12, padding: 14, background: "#fafafa" }}>
+                      {tailorClPreview.scorecard && (
+                        <div style={{ marginBottom: 10 }}>
+                          {Object.entries(tailorClPreview.scorecard.scores || {}).map(([dim, score]) => (
+                            <div key={dim} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                              <div style={{ fontSize: 9, color: T.gray400, fontFamily: "'DM Mono', monospace", width: 110, flexShrink: 0 }}>{dim.replace(/_/g, " ")}</div>
+                              <div style={{ flex: 1, height: 4, background: T.gray200, borderRadius: 99 }}>
+                                <div style={{ height: "100%", width: `${score * 10}%`, background: score >= 8 ? "#16a34a" : score >= 6 ? T.orange : T.red, borderRadius: 99 }} />
+                              </div>
+                              <div style={{ fontSize: 9, color: T.gray600, fontFamily: "'DM Mono', monospace", width: 14 }}>{score}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: T.gray600, fontFamily: "'Sora', sans-serif", lineHeight: 1.7, maxHeight: 160, overflowY: "auto", whiteSpace: "pre-wrap", padding: "10px 12px", background: "#fff", borderRadius: 8, border: `1px solid ${T.gray200}` }}>
+                        {tailorClPreview.letter_text}
+                      </div>
+                      <button onClick={handleTailorApproveWithLetter} disabled={tailorClApproving || tailoring} style={{ marginTop: 10, width: "100%", padding: "9px", borderRadius: 9, background: "#16a34a", border: "none", color: "#fff", fontWeight: 700, fontSize: 11, fontFamily: "'DM Mono', monospace", cursor: (tailorClApproving || tailoring) ? "wait" : "pointer" }}>
+                        {tailorClApproving || tailoring ? "⏳ Generating ZIP..." : "✓ Approve & Generate ZIP"}
+                      </button>
+                    </div>
+                  )}
+                  {tailorClError && <div style={{ fontSize: 11, color: T.red, fontFamily: "'DM Mono', monospace", marginTop: 8 }}>{tailorClError}</div>}
+                </div>
+              )}
+
+              {/* Run button */}
+              <button onClick={handleRunTailor} disabled={tailoring || tailorClLoading} style={{ width: "100%", padding: "14px", borderRadius: 12, background: T.orange, border: "none", color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: "'DM Mono', monospace", cursor: (tailoring || tailorClLoading) ? "wait" : "pointer", boxShadow: `0 4px 16px rgba(232,98,26,0.3)` }}>
+                {tailoring ? "⏳ Tailoring CV..." : includeCoverLetter ? "✂ Tailor CV only (skip letter)" : "✂ Run Tailoring"}
+              </button>
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: "24px 0", color: T.gray400, fontFamily: "'DM Mono', monospace", fontSize: 12 }}>No preview available — add a job description when tracking to enable tailoring.</div>
+          )}
+        </div>
+      </div>
+    )}
 
     {/* ── Cover Letter Modal ── */}
     {showCLModal && clTarget && (
@@ -2830,6 +3076,11 @@ const ManualTracker = () => {
 export default function App() {
   const [active, setActive] = useState(() => localStorage.getItem("activeTab") || "overview");
   const [collapsed, setCollapsed] = useState(false);
+  const [llmMode, setLlmModeState] = useState("online");
+
+  useEffect(() => {
+    fetchLLMMode().then(d => { if (d?.mode) setLlmModeState(d.mode); });
+  }, []);
 
   useEffect(() => { localStorage.setItem("activeTab", active); }, [active]);
   const pageTitle = navItems.find(n => n.id === active)?.label || "";
@@ -2869,7 +3120,7 @@ export default function App() {
     if (active === "timeline") return <YourProjects />;
     if (active === "interview") return <InterviewPrepView />;
     if (active === "analytics") return <Analytics />;
-    if (active === "automation") return <AutomationLogs />;
+    if (active === "automation") return <><AgentRunner /><AutomationLogs /></>;
     if (active === "scraper") return <ScraperStats />;
     if (active === "profile") return <ProfileView />;
   };
@@ -2915,6 +3166,32 @@ export default function App() {
               <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 16px", background: T.orangeXLight, borderRadius: 99, border: `1px solid ${T.orange}44` }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: T.orange, animation: "pulse 2s infinite" }} />
                 <span style={{ fontSize: 11, color: T.orange, fontFamily: "'DM Mono', monospace", fontWeight: 500 }}>Agents running</span>
+              </div>
+              {/* LLM Mode Toggle */}
+              <div style={{
+                display: "flex", alignItems: "center",
+                background: "#fff", border: `1px solid ${T.gray200}`,
+                borderRadius: 99, padding: "3px 4px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+              }}>
+                {[
+                  { id: "local", label: "Local",  color: T.green,  title: "gemma2:9b via Ollama" },
+                  { id: "cc",    label: "CC",      color: T.navy,   title: "Claude Code CLI (Sonnet 4.6, OAuth)" },
+                  { id: "online",label: "Online",  color: T.orange, title: "Claude API + gemma2 fallback" },
+                ].map(({ id, label, color, title }) => (
+                  <button
+                    key={id}
+                    title={title}
+                    onClick={() => { setLlmModeState(id); setLLMMode(id); }}
+                    style={{
+                      fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 700,
+                      padding: "3px 9px", borderRadius: 99, border: "none", cursor: "pointer",
+                      transition: "all 0.2s",
+                      background: llmMode === id ? color : "transparent",
+                      color: llmMode === id ? "#fff" : T.gray400,
+                    }}
+                  >{label}</button>
+                ))}
               </div>
               <div style={{ width: 36, height: 36, borderRadius: 12, background: "#fff", border: `1px solid ${T.gray200}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 15, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>🔔</div>
             </div>

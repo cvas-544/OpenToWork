@@ -1,8 +1,8 @@
 """
 Agent 3 — Gap Analyst
 Model: claude-sonnet-4-6 (complex reasoning)
-Input: all scored jobs (all time) from DB
-Output: global per-skill gap table with project integration guidance or course suggestions
+Input: newly scored jobs (gap_analyzed = false) from DB
+Output: incremental skill_gaps updates — counts added to existing totals, not overwritten
 """
 
 import os
@@ -75,11 +75,11 @@ def save_gaps(gap_analyses: list[dict]):
             INSERT INTO skill_gaps (skill, frequency, project_mapping, how_to_implement, online_course, example_project, last_updated)
             VALUES (%s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (skill) DO UPDATE SET
-                frequency = EXCLUDED.frequency,
-                project_mapping = EXCLUDED.project_mapping,
-                how_to_implement = EXCLUDED.how_to_implement,
-                online_course = EXCLUDED.online_course,
-                example_project = EXCLUDED.example_project,
+                frequency = skill_gaps.frequency + EXCLUDED.frequency,
+                project_mapping = COALESCE(EXCLUDED.project_mapping, skill_gaps.project_mapping),
+                how_to_implement = COALESCE(EXCLUDED.how_to_implement, skill_gaps.how_to_implement),
+                online_course = COALESCE(EXCLUDED.online_course, skill_gaps.online_course),
+                example_project = COALESCE(EXCLUDED.example_project, skill_gaps.example_project),
                 last_updated = NOW()
             """,
             (
@@ -94,29 +94,49 @@ def save_gaps(gap_analyses: list[dict]):
 
 
 def fetch_jobs_from_db() -> list[dict]:
-    """Fetch all scored jobs — cumulative gap analysis across all time."""
+    """Fetch only unanalyzed scored jobs (gap_analyzed = false)."""
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
-    cur.execute("SELECT missing_skills FROM job_listings WHERE score >= 60")
+    cur.execute(
+        "SELECT id, missing_skills FROM job_listings WHERE score >= 60 AND gap_analyzed = false"
+    )
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [{"missing_skills": r[0] or []} for r in rows]
+    return [{"id": r[0], "missing_skills": r[1] or []} for r in rows]
+
+
+def mark_jobs_analyzed(job_ids: list[int]):
+    """Mark jobs as analyzed so they're skipped on future runs."""
+    if not job_ids:
+        return
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE job_listings SET gap_analyzed = true WHERE id = ANY(%s)",
+        (job_ids,),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def run(jobs: list[dict] = None) -> list[dict]:
     if jobs is None:
         jobs = fetch_jobs_from_db()
-    print(f"[Agent 3] Analyzing skill gaps across {len(jobs)} scored jobs")
+    print(f"[Agent 3] {len(jobs)} new unanalyzed jobs to process")
     if not jobs:
-        print("[Agent 3] No scored jobs found — skipping")
+        print("[Agent 3] No new jobs — skipping")
         return []
     top_gaps = aggregate_gaps(jobs)
     print(f"  Top gaps: {[g[0] for g in top_gaps[:5]]}")
 
     gap_analyses = analyze_gaps(top_gaps)
     save_gaps(gap_analyses)
-    print(f"[Agent 3] Saved {len(gap_analyses)} gap analyses to DB")
+
+    job_ids = [j["id"] for j in jobs if "id" in j]
+    mark_jobs_analyzed(job_ids)
+    print(f"[Agent 3] Saved {len(gap_analyses)} gap analyses, marked {len(job_ids)} jobs analyzed")
     return gap_analyses
 
 

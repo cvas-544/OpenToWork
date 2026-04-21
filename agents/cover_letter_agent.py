@@ -7,8 +7,9 @@ Output: letter_text + scorecard dict (7 dimensions, 1-10 each, overall avg, pass
 Profile + voice rules embedded as constants — agent is self-contained for portability.
 """
 
+import re
 import json
-from agents.llm_client import call_llm
+from agents.llm_client import call_llm, get_llm_mode, call_claude_code_skill
 
 # ── Embedded profile (from ~/.claude/skills/cover-letter/references/profile.md) ──
 
@@ -338,11 +339,54 @@ INSTRUCTIONS:
     return call_llm(prompt, model="claude-sonnet-4-6", max_tokens=2000, agent_name="cover_letter_agent")
 
 
+def _parse_letter_from_skill_output(output: str) -> str:
+    """Extract cover letter text from the /cover-letter skill's formatted output."""
+    # Skill outputs sections separated by ════ lines
+    # Find text between COVER LETTER header and next ════ block
+    match = re.search(
+        r"═+\s*COVER LETTER\s*═+\s*(.*?)\s*═+",
+        output,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip()
+    # Fallback: return full output if format not found
+    return output.strip()
+
+
+def _generate_with_review_cc(job: dict) -> dict:
+    """CC mode: invoke /cover-letter skill via Claude Code CLI."""
+    job_id = job.get("id")
+    if job_id:
+        args = f"job_id:{job_id}"
+    else:
+        # Manual app — pass title + company + description as text
+        title = job.get("title", "")
+        company = job.get("company", "")
+        desc = job.get("description", "")[:800]
+        args = f"{title} at {company}\n{desc}"
+
+    print(f"[Agent 8] CC mode — invoking /cover-letter skill ({args[:60]}...)")
+    output = call_claude_code_skill("cover-letter", args)
+    letter_text = _parse_letter_from_skill_output(output)
+    return {
+        "letter_text": letter_text,
+        "scorecard": None,  # skill handles quality internally
+        "iterations": 1,
+        "passes": True,
+        "mode": "cc",
+    }
+
+
 def generate_with_review(job: dict, max_iterations: int = 2) -> dict:
     """
     Generate cover letter, review it, revise if needed.
+    CC mode: delegates entirely to /cover-letter skill via Claude Code CLI.
     Returns: {letter_text, scorecard, iterations, passes}
     """
+    if get_llm_mode() == "cc":
+        return _generate_with_review_cc(job)
+
     print(f"[Agent 8] Generating cover letter for {job.get('title')} @ {job.get('company')}...")
     letter_text = generate_cover_letter(job)
 

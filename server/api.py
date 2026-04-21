@@ -39,6 +39,26 @@ def health():
     return {"status": "ok"}
 
 
+# ─── LLM Mode Toggle ──────────────────────────────────────────────────────────
+
+class LLMModeRequest(BaseModel):
+    mode: str  # "online" | "local"
+
+@app.get("/settings/llm-mode")
+def get_llm_mode_endpoint():
+    from agents.llm_client import get_llm_mode
+    return {"mode": get_llm_mode()}
+
+@app.post("/settings/llm-mode")
+def set_llm_mode_endpoint(body: LLMModeRequest):
+    from agents.llm_client import set_llm_mode
+    try:
+        set_llm_mode(body.mode)  # accepts "online" | "cc" | "local"
+        return {"mode": body.mode}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── Agent Run Endpoints ───────────────────────────────────────────────────────
 
 @app.post("/run/agent1")
@@ -181,8 +201,9 @@ class CoverLetterApproveRequest(BaseModel):
 def tailor_cv_preview(body: PreviewRequest):
     try:
         from agents.cv_tailor import fetch_job, read_base_cv, preview_changes
+        from agents.llm_client import get_llm_mode
         job = fetch_job(body.job_id)
-        cv_tex = read_base_cv()
+        cv_tex = "" if get_llm_mode() == "cc" else read_base_cv()
         result = preview_changes(job, cv_tex)
         return result
     except Exception as e:
@@ -345,8 +366,9 @@ def _build_manual_job(title: str, company: str, description: str) -> dict:
 def tailor_cv_preview_manual(body: ManualTailorPreviewRequest):
     try:
         from agents.cv_tailor import read_base_cv, preview_changes
+        from agents.llm_client import get_llm_mode
         job = _build_manual_job(body.title, body.company, body.description)
-        cv_tex = read_base_cv()
+        cv_tex = "" if get_llm_mode() == "cc" else read_base_cv()
         result = preview_changes(job, cv_tex)
         return result
     except Exception as e:
@@ -610,11 +632,13 @@ def get_jobs(limit: int = 200, score_min: int = 0):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
-        SELECT id, title, company, location, remote, url, source,
-               score, date_posted, scraped_at, matched_skills, missing_skills, description
-        FROM job_listings
-        WHERE (score >= %s OR score IS NULL)
-        ORDER BY scraped_at DESC
+        SELECT jl.id, jl.title, jl.company, jl.location, jl.remote, jl.url, jl.source,
+               jl.score, jl.date_posted, jl.scraped_at, jl.matched_skills, jl.missing_skills, jl.description,
+               COALESCE(a.status, 'new') AS status
+        FROM job_listings jl
+        LEFT JOIN applications a ON a.job_id = jl.id
+        WHERE (jl.score >= %s OR jl.score IS NULL)
+        ORDER BY jl.scraped_at DESC
         LIMIT %s
     """, (score_min, limit))
     jobs = [dict(r) for r in cur.fetchall()]
@@ -628,7 +652,6 @@ def get_jobs(limit: int = 200, score_min: int = 0):
         j["created_at"] = str(j["scraped_at"])
         j["scraped_at"] = j["created_at"]
         j["date_posted"] = str(j["date_posted"]) if j.get("date_posted") else ""
-        j["status"] = "new"
         j["description"] = j.get("description") or ""
     return {"jobs": jobs}
 

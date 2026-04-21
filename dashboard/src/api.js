@@ -254,3 +254,29 @@ export async function updateSkills(skills) {
     return null;
   }
 }
+
+export async function fetchLLMMode() {
+  try {
+    const res = await fetch(`${API_URL}/settings/llm-mode`);
+    if (!res.ok) throw new Error("API error");
+    return await res.json(); // { mode: "online" | "local" }
+  } catch (e) {
+    console.warn("[API] fetchLLMMode failed:", e.message);
+    return { mode: "online" };
+  }
+}
+
+export async function setLLMMode(mode) {
+  try {
+    const res = await fetch(`${API_URL}/settings/llm-mode`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    if (!res.ok) throw new Error("API error");
+    return await res.json();
+  } catch (e) {
+    console.warn("[API] setLLMMode failed:", e.message);
+    return null;
+  }
+}

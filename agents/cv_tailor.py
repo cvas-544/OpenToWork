@@ -13,11 +13,11 @@ import shutil
 import psycopg2
 from pathlib import Path
 from dotenv import load_dotenv
-from agents.llm_client import call_llm
+from agents.llm_client import call_llm, get_llm_mode, call_claude_code_skill
 
 load_dotenv()
 
-BASE_CV_DIR = Path("/Users/vasuchukka/Desktop/job/Base")
+BASE_CV_DIR = Path("/Users/vasuchukka/Desktop/job/base-CV")
 OUTPUT_BASE_DIR = Path("/Users/vasuchukka/Desktop/job")
 
 
@@ -64,7 +64,23 @@ def read_base_cv() -> str:
 
 
 def preview_changes(job: dict, cv_tex: str) -> dict:
-    """Return skills to add for this job + ALL skills currently in the CV for user review."""
+    """Return skills to add for this job + ALL skills currently in the CV for user review.
+    CC mode: delegates to /cv-tailor skill via Claude Code CLI.
+    """
+    if get_llm_mode() == "cc":
+        job_id = job.get("id")
+        if job_id:
+            args = f"job_id:{job_id} --preview"
+        else:
+            title = job.get("title", "")
+            company = job.get("company", "")
+            desc = job.get("description", "")[:800]
+            args = f'--preview --title "{title}" --company "{company}" --description "{desc}"'
+        output = call_claude_code_skill("cv-tailor", args)
+        start = output.find("{")
+        end = output.rfind("}") + 1
+        return json.loads(output[start:end])
+
     missing = ", ".join(job["missing_skills"]) if job["missing_skills"] else "none"
     matched = ", ".join(job["matched_skills"][:15]) if job["matched_skills"] else "none"
     description_excerpt = job["description"][:2000]
@@ -101,6 +117,20 @@ Return ONLY valid JSON, no explanation:
 
 
 def tailor_cv(cv_tex: str, job: dict, skills_to_add: list, skills_to_remove: list) -> str:
+    """Generate tailored LaTeX. CC mode: delegates to /cv-tailor skill."""
+    if get_llm_mode() == "cc":
+        job_id = job.get("id")
+        add_str = ",".join(skills_to_add) if skills_to_add else ""
+        remove_str = ",".join(skills_to_remove) if skills_to_remove else ""
+        if job_id:
+            args = f"job_id:{job_id} --add \"{add_str}\" --remove \"{remove_str}\""
+        else:
+            title = job.get("title", "")
+            company = job.get("company", "")
+            desc = job.get("description", "")[:600]
+            args = f'--title "{title}" --company "{company}" --description "{desc}" --add "{add_str}" --remove "{remove_str}"'
+        return call_claude_code_skill("cv-tailor", args)
+
     add_str = ", ".join(skills_to_add) if skills_to_add else "none"
     remove_str = ", ".join(skills_to_remove) if skills_to_remove else "none"
     description_excerpt = job["description"][:3000]
