@@ -19,6 +19,7 @@ Usage:
 import os
 import re
 import subprocess
+from pathlib import Path
 import requests
 import anthropic
 from dotenv import load_dotenv
@@ -27,9 +28,24 @@ load_dotenv()
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
-# Runtime mode — mutated by set_llm_mode() via API endpoint
-# Seeded from env var at startup; dashboard toggle overrides at runtime
-_llm_mode: str = "local" if os.environ.get("USE_LOCAL_LLM", "").strip() in ("1", "true", "yes") else "online"
+_SETTINGS_FILE = Path(__file__).parent.parent / "data" / "llm_mode.txt"
+
+
+def _load_persisted_mode() -> str:
+    """Read mode from disk; default 'cc' if file missing or invalid."""
+    if os.environ.get("USE_LOCAL_LLM", "").strip() in ("1", "true", "yes"):
+        return "local"
+    try:
+        mode = _SETTINGS_FILE.read_text().strip()
+        if mode in ("online", "cc", "local"):
+            return mode
+    except Exception:
+        pass
+    return "cc"
+
+
+# Runtime mode — persisted to data/llm_mode.txt; defaults to "cc"
+_llm_mode: str = _load_persisted_mode()
 
 # Claude model → Ollama fallback model
 OLLAMA_MODEL_MAP = {
@@ -49,6 +65,11 @@ def set_llm_mode(mode: str) -> None:
     if mode not in ("online", "cc", "local"):
         raise ValueError(f"Invalid LLM mode: {mode!r}. Must be 'online', 'cc', or 'local'.")
     _llm_mode = mode
+    try:
+        _SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _SETTINGS_FILE.write_text(mode)
+    except Exception as e:
+        print(f"[LLM] Warning: could not persist mode to disk: {e}")
     print(f"[LLM] Mode switched → {mode}")
 
 
