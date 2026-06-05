@@ -3,7 +3,7 @@
 ## Project Vision
 Privacy-first, self-hosted multi-agent job intelligence system.
 No third-party SaaS. Everything on AWS EC2 + RDS.
-Intelligence layer = Claude API. Orchestration = n8n. Dashboard = React.
+Intelligence layer = provider-agnostic (Anthropic / OpenAI / NVIDIA NIM / Ollama). Orchestration = EC2 cron. Dashboard = React.
 
 ---
 
@@ -30,14 +30,19 @@ Intelligence layer = Claude API. Orchestration = n8n. Dashboard = React.
 ---
 
 ## Tech Stack
-- Orchestration: n8n on AWS EC2 (Docker)
-- Intelligence: Claude API (anthropic SDK)
-  - `claude-haiku-4-5-20251001` — Agent 2 (CV Matcher, batch scoring)
-  - `claude-sonnet-4-6` — Agent 3, 4, 5 (reasoning, generation, synthesis)
-- Database: PostgreSQL on AWS RDS
-- Dashboard: React + Vite + Tailwind + Recharts
-- Scraping: Arbeitsagentur REST API + Apify LinkedIn (`curious_coder/linkedin-jobs-scraper`) + Apify Indeed (`cvas-544/indeed-scraper-de`, Scrappey-based)
-- Email: Gmail via n8n Gmail node
+- Orchestration: EC2 system cron (`/etc/cron.d/opentowork`) — replaced n8n entirely
+  - Hourly Mon–Fri: `/run/pipeline/due` — fires only for users whose `schedule_times` matches Munich hour
+  - Sunday 9am UTC: `/run/pipeline/weekly` (Agent 5+6)
+  - Scripts: `scripts/run-pipeline.sh` + `scripts/run-weekly.sh` — JWT generated from JWT_SECRET
+- Intelligence: Provider-agnostic via `llm_client.py`
+  - `anthropic` — Claude Haiku (fast) + Sonnet (smart)
+  - `openai` — GPT-4o-mini (fast) + GPT-4o (smart)
+  - `nvidia` — DeepSeek-V4-Flash Non-Think (fast) + Think High (smart) via `https://integrate.api.nvidia.com/v1`
+  - `ollama` — gemma2:9b universal fallback
+- Database: PostgreSQL on AWS RDS (opentowork DB + langfuse DB)
+- Dashboard: React + Vite + Tailwind + Recharts — deployed on Vercel
+- Scraping: Arbeitsagentur REST API + Apify LinkedIn (`curious_coder/linkedin-jobs-scraper`) + Apify Indeed (`wannabe/indeed-scraper-de`)
+- Observability: Langfuse v2 self-hosted on EC2 port 3010 (Docker, PostgreSQL on RDS `langfuse` DB) — IN PROGRESS
 
 ---
 
@@ -210,7 +215,6 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ---
 
 ## What NOT to Do
-- Never use OpenAI or any other AI provider
 - Never hardcode API keys, DB credentials, or CV content
 - Never commit .env, cv.txt, *.csv, *.pem, *.key
 - Never use `git add -A`
@@ -286,6 +290,37 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 - **Jobs Board CV Tailor modal extended**: "Include cover letter" toggle ON → "Preview Cover Letter" button → Agent 8 runs → scorecard bars (7 dims) + letter preview + Re-run / Approve & Generate ZIP flow.
 - **My Applications "Cover Letter" button**: dark button in detail panel → opens cover-letter-only modal (no CV skills) → Agent 8 generate → scorecard → Re-run / Approve & Save ZIP. Button turns green "✓ Letter Ready" after ZIP saved.
 - **Cover letter output**: `~/Desktop/job/{Company}-{Title}/coverletter.tex` + `~/Desktop/job/CoverLetter_{Company}_{Date}.zip` (Overleaf-ready, XeLaTeX)
+- **LLM mode toggle (dashboard topbar)**: 3-way toggle Local/CC/Online — `GET/POST /settings/llm-mode` API endpoints, runtime-switchable via module-level `_llm_mode` global in `llm_client.py`
+- **CC mode**: Claude Code CLI (OAuth subscription, Sonnet 4.6) via subprocess — `/cv-tailor` and `/cover-letter` skills at `~/.claude/skills/`. NVM path auto-resolved. `ANTHROPIC_API_KEY` stripped so CLI uses OAuth.
+- **gemma2:9b universal fallback**: replaces per-agent llama3/deepseek — all agents now fall back to gemma2:9b via Ollama
+- **Job status persistence**: Jobs Board status changes now saved to `applications` table via UPSERT. Migration 005 added UNIQUE constraint on `applications.job_id`. `/data/jobs` LEFT JOINs applications for persisted status on load.
+- **Agent 3 incremental gap analysis**: Migration 006 adds `gap_analyzed BOOLEAN DEFAULT FALSE` to `job_listings`. Agent 3 only fetches `gap_analyzed=false` jobs, increments skill counts (not overwrite), marks jobs analyzed after. All pre-2026-04-21 jobs marked as analyzed (skip backfill).
+- **AgentRunner dashboard component**: per-agent run buttons in Automation Logs tab (Agents 1–6)
+- **Phase 6 — Multi-user + Provider-agnostic LLM** ✅ (2026-06-02):
+  - Migration 011: `user_settings` table (cv_text, job_keywords, llm_provider, llm_api_key, llm_model_fast, llm_model_smart, apify_token, apify_token_public)
+  - `llm_client.py` rewritten: `call_llm(prompt, max_tokens, user_id, speed)` routes to anthropic/openai/ollama per user DB row
+  - All agents refactored: `run(user_id=1)`, all DB queries filter by user_id, all LLM calls use user_id
+  - `api.py`: all `/run/agent*` pass `user_id` from JWT; `GET/PUT /settings/user`; `POST /run/pipeline/all` (parallel threads per user, admin-only)
+  - Settings UI: Pipeline Settings section (CV, provider, API key, model overrides, keywords, Apify tokens)
+  - n8n workflow: daily schedule now calls `/run/pipeline/all` (single node, returns immediately, agents run in background); auth Bearer token added to all n8n HTTP nodes
+  - EC2: uvicorn upgraded to `--workers 4`; admin JWT token (no expiry) seeded in n8n workflow
+  - Vercel deployed: https://opentowork-dashboard.vercel.app
+
+- **Phase 7 — Per-user scheduling + NVIDIA NIM + Observability** ✅ (2026-06-05):
+  - Migration 012: `pipeline_agents TEXT[]` — per-user agent toggles in Settings
+  - Migration 013: `schedule_times INTEGER[]` — per-user Munich hour triggers (default {8,12,20})
+  - Cron changed from `0 8,12,20 * * 1-5` → `0 * * * 1-5` (hourly), `/run/pipeline/due` checks Munich hour
+  - NVIDIA NIM added as provider: `deepseek-ai/deepseek-v4-flash`, Non-Think (fast) + Think High (smart)
+  - `cv_matcher.py`: ThreadPoolExecutor parallel scoring — PROVIDER_WORKERS: anthropic=20, openai=20, nvidia=1 (free-tier sequential), ollama=3
+  - Schedule time picker in Settings UI: 24 hour buttons (Munich time), toggleable
+  - Langfuse v2 self-hosted on EC2 port 3010 — Docker, uses `langfuse` DB on RDS
+  - Langfuse `@observe` wired into `llm_client.py` — traces all `call_llm` calls; model stored at trace-level metadata (trace list API doesn't return observations)
+  - `langfuse.anthropic` + `langfuse.openai` wrappers for auto token/cost capture
+  - AgentOps integrated alongside Langfuse — `start_session`/`end_session` per `call_llm` call; sessions stored in `agentops_sessions` DB table (AgentOps 0.4.x removed public list API)
+  - **Traces tab** in dashboard: toggle Langfuse / AgentOps; Langfuse table shows model/speed/latency/tokens/cost; AgentOps table reads from DB + enriches with live `/v2/sessions/<id>/stats` (parallel httpx); deep link to `app.agentops.ai` per session
+  - **OpenAI Batch API for Agent 2**: when provider=openai, `_score_jobs_batch()` uploads JSONL → polls → parses (50% cheaper, no rate limits). Non-OpenAI providers still use ThreadPoolExecutor
+  - `requirements.txt`: added `langfuse==2.60.10`, `agentops>=0.3.0`, `httpx>=0.27.0`
+  - `.gitignore`: added `n8n/workflows/` (hardcoded JWT), `dashboard/.env.local`, `.mcp.json`, `data/`
 
 ### Indeed Scraper — Live ✅
 - Actor: `wannabe/indeed-scraper-de` (ID: 9qhb5j6V4P6hNBKWF) at `scrapers/apify-indeed/`
@@ -310,21 +345,21 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 ### Agent Architecture (current)
 | Agent | Trigger | Model | Notes |
 |---|---|---|---|
-| 1 — Job Scraper | n8n 8am/noon/8pm | — | Arbeitsagentur (profession=Softwareentwickler/in + AI word-boundary filter) + LinkedIn 3 keywords (APIFY_TOKEN_PUBLIC) + Indeed 4 keywords (APIFY_TOKEN, Scrappey+AlterLab) |
-| 2 — CV Matcher | After Agent 1 | Haiku → llama3 | All unscored jobs |
-| 3 — Gap Analyst | After Agent 2 | Sonnet → llama3 | Weekly gaps, 6000 max_tokens |
-| 4 — Interview Coach | Status → Interview | Sonnet → llama3 | On-demand only |
-| 5 — Reporter | Sunday 9am | Sonnet → llama3 | Weekly digest → reports/weekly/ |
-| 6 — App Tracker | Sunday 9am (after 5) | — | Follow-up reminders |
-| 7 — CV Tailor | Manual (local only) | Sonnet → deepseek-r1:8b | LaTeX output, `run_from_job()` core |
-| 8 — Cover Letter | Manual (local only) | Sonnet → llama3 | generate + self-review loop (max 2 passes, threshold 9.0) |
+| 1 — Job Scraper | EC2 cron hourly (Munich time) | — | Arbeitsagentur + LinkedIn (APIFY_TOKEN_PUBLIC from DB) + Indeed (APIFY_TOKEN from DB) |
+| 2 — CV Matcher | After Agent 1 | user's provider fast model | **OpenAI Batch API** (if provider=openai) — JSONL upload → poll → parse. Others: ThreadPoolExecutor. PROVIDER_WORKERS: anthropic=20, openai=20, nvidia=1, ollama=3 |
+| 3 — Gap Analyst | After Agent 2 | user's provider smart model | Single LLM call (aggregated gaps), no parallelism needed |
+| 4 — Interview Coach | Status → Interview | user's provider smart model | On-demand only |
+| 5 — Reporter | Sunday 9am UTC | user's provider smart model | Weekly digest → reports/weekly/ |
+| 6 — App Tracker | Sunday 9am UTC (after 5) | — | Follow-up reminders |
+| 7 — CV Tailor | Manual (local only) | Sonnet → gemma2:9b | LaTeX output, `run_from_job()` core, CC mode via /cv-tailor skill |
+| 8 — Cover Letter | Manual (local only) | Sonnet → gemma2:9b | generate + self-review loop (max 2 passes, threshold 9.0), CC mode via /cover-letter skill |
 
 ### CV Tailor + Cover Letter — Local Only (not on EC2)
 - `agents/cv_tailor.py` — Agent 7: `preview_changes` + `tailor_cv` + `run_from_job(job_dict)` + `run(job_id)`
 - `agents/cover_letter_agent.py` — Agent 8: `generate_cover_letter` + `review_cover_letter` + `generate_with_review`
 - Profile + voice rules embedded as constants in Agent 8 (not runtime file reads)
 - `server/api.py` — 7 local endpoints: preview · tailor · tailored/{id} · cover-letter/preview · cover-letter/approve · preview-manual · tailor-manual · cover-letter/preview-manual · cover-letter/approve-manual
-- Base CV: `/Users/vasuchukka/Desktop/job/Base/main.tex`
+- Base CV: `/Users/vasuchukka/Desktop/job/base-CV/main.tex`
 - Awesome-CV template: `~/Documents/Projects/Skills/coverLetter/template/base-CoverLetter/`
 - Output: `~/Desktop/job/{Company}-{Title}/` (cv.tex + coverletter.tex + assets + ZIP)
 - Dashboard: `.env.local` → `VITE_API_URL=http://localhost:8000`
@@ -333,9 +368,10 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 
 ### LLM Backend — Local Models
 - Ollama running at `http://localhost:11434`
-- Available: `llama3:latest` (4.4GB) · `deepseek-r1:8b` (4.7GB) · `mistral:latest` (3.9GB) · `llama2:latest` (3.6GB)
-- **Next session**: consider pulling `gemma3:12b` for cover letter generation (better writing quality than llama3)
-- `USE_LOCAL_LLM` toggle planned — skip Claude API, go straight to Ollama for local-only agents
+- Available: `llama3:latest` (4.4GB) · `deepseek-r1:8b` (4.7GB) · `mistral:latest` (3.9GB) · `llama2:latest` (3.6GB) · `gemma2:9b`
+- **Universal fallback**: `gemma2:9b` for all agents (replaces per-agent llama3/deepseek overrides)
+- LLM mode toggle live on dashboard (top right): **Local** (gemma2:9b direct) · **CC** (Claude Code CLI, OAuth) · **Online** (Claude API → gemma2:9b fallback)
+- Anthropic API credits exhausted as of 2026-04-21 — agents falling back to gemma2:9b
 
 ### Local Dev
 - Dashboard: http://localhost:3002
@@ -346,15 +382,120 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 
 ---
 
-## Planned: Session 5 — Cover Letter Agent
-Full spec: `.claude/cover-letter-integration.md`
-- Agent 8: `agents/cover_letter_agent.py` — modular profile template + self-review loop (max 2 passes, threshold 9.0/10)
-- 2 new API endpoints: `POST /cv/cover-letter/preview` + `POST /cv/cover-letter/approve`
-- Dashboard: extend CV Tailor modal with letter preview, scorecard, approve gate
-- Awesome-CV template integration for styled ZIP output
-- Optional: `cover_letter_drafts` DB table (migration 005)
+---
+
+## Infrastructure
+
+### AWS
+- EC2: `ubuntu@51.20.75.205` (eu-north-1, new account `150105760014`)
+- RDS: `finsense-db.c5scmqi2ado9.eu-north-1.rds.amazonaws.com` PostgreSQL 5432 db=opentowork
+- EC2 SSH: `ssh -i /Users/vasuchukka/FinsenseKey.pem ubuntu@51.20.75.205`
+- FastAPI systemd: `sudo systemctl restart opentowork-api`
+- API live at: `http://51.20.75.205:8000`
+
+### Vercel
+- Dashboard: https://opentowork-dashboard.vercel.app
+- Deploy: `cd dashboard && vercel deploy --prod`
+- Proxy: `vercel.json` rewrites `/api/*` → `http://51.20.75.205:8000/*`
+
+### Deployment Rules
+| Change | Target |
+|---|---|
+| `server/api.py`, `server/auth.py` | scp → EC2 + systemctl restart |
+| `db/migrations/*.sql` | psql → RDS |
+| `dashboard/src/**` | vercel deploy --prod |
+| `agents/*.py` | scp → EC2 |
+| `website/**` | cd website && vercel deploy --prod --yes |
+
+---
+
+## Auth & Multi-tenancy (Session 5)
+
+### JWT Auth
+- `server/auth.py` — bcrypt + PyJWT (sub stored as str, decoded to int)
+- `JWT_SECRET` in `.env` — `otw-jwt-secret-change-in-prod-2026`
+- Middleware: `AuthMiddleware` in `api.py` — PUBLIC_PATHS = `{"/health", "/auth/login"}`
+- Endpoints: `/auth/login` · `/auth/register` (admin) · `/auth/users` (admin) · `/auth/me` · `/auth/change-password`
+
+### Multi-tenancy
+- Migration 008: `user_id INTEGER NOT NULL` on all data tables, backfilled to user_id=1
+- Migration 009: `(job_id, user_id)` unique index on applications (replaced single job_id)
+- Migration 010: Fixed `user_profile.user_id` VARCHAR→INTEGER (was 'default', now FK to users)
+- All API data endpoints filter by `current_user["sub"]`
+- All agents hardcode `user_id=1` for EC2 background runs (to be replaced in Phase 6)
+
+### Users
+- Admin: `vasu.chukka97@gmail.com` / `OpenToWork2026!` (id=1)
+
+### Settings UI (Phase 5 — done)
+- Settings tab in dashboard: change password, sign out
+- Admin section: list/create/delete users
+- API: `GET/POST /auth/change-password`, `GET /auth/users`, `POST /auth/register`, `DELETE /auth/users/{id}`
+
+---
+
+## Phase 6 — Multi-user + Provider-agnostic LLM ✅ COMPLETE (2026-06-02)
+
+All agents accept `user_id=1` default. Each user's settings loaded from `user_settings` at run time.
+n8n calls `POST /run/pipeline/all` (admin token) → parallel background threads per user.
+New users onboard via Settings tab: paste CV, pick LLM provider, enter API key, set keywords.
+
+---
+
+## Marketing Website (Session 8 — 2026-06-05)
+
+Static marketing site for public-facing OpenToWork landing page.
+
+### Files
+```
+website/
+├── index.html          ← single-file site (all CSS + HTML + JS inline)
+├── vercel.json         ← outputDirectory:".", framework:null (static)
+├── design-system.md   ← FULL design token reference (read this first)
+└── assets/
+    ├── neue-haas-grotesk-display-pro/   ← self-hosted TTF fonts (7 weights)
+    ├── globe.svg        → Job Scraper
+    ├── target.svg       → CV Matcher
+    ├── venn.svg         → Skill Gaps
+    ├── star.svg         → Interview Coach
+    ├── clock.svg        → Reporter / time saved
+    ├── grid.svg         → App Tracker
+    ├── plus.svg         → CV Tailor
+    ├── phillips.svg     → Cover Letter
+    ├── expand.svg       → Generic / hero
+    ├── dots.svg         → Lost applications pain
+    └── halflines.svg    → Background texture
+```
+
+### Live URL
+https://opentowork-site.vercel.app
+
+### Design System
+Sourced from Figma: https://www.figma.com/design/edZchVLmFPKxtaPBV8zsAr/The-Brand-Design-System--Community-  
+**Always read `website/design-system.md` before editing the website** — contains all color tokens, type scale, letter spacing, illustration node IDs, grain CSS, and deploy instructions.
+
+### Key Design Tokens
+- Dark bg: `#191919` (Charcoal) · Light bg: `#FFFAEE` (Vanilla) · Accent: `#FE5102` (Orange brand-500)
+- Hero font: Neue Haas Grotesk Display Pro, weight 700, `letter-spacing: -4px` (extra tight desktop)
+- Section titles: same font, `letter-spacing: -1px` (snug desktop)
+- Body: Space Grotesk (Google Fonts fallback — no Text Pro TTF available)
+- Cards: `border-radius: 20px`
+
+### CSS Variable System
+```css
+:root             { --bg:#191919; --surface:#1E1E1E; --border:#383838; --text:#FFFAEE; --accent:#FE5102; --fill-0:#FFFAEE; --stroke-0:#FFFAEE; }
+[data-theme=light]{ --bg:#FFFAEE; --surface:#FFFAF5; --border:#DDDEE2; --text:#191919; --fill-0:#191919; --stroke-0:#191919; }
+```
+`--fill-0` / `--stroke-0` cascade into inline SVG illustrations for theme-aware recoloring.
+
+### Known Gotchas
+- SVG illustrations must be **inlined** (not `<img>`) for CSS variable inheritance
+- Strip `overflow="visible"` from Figma SVG exports — breaks container clip at 64×64
+- Grain element uses `background-position` animation, NOT `transform` translate — translating a 200%×200% element shifts it out of viewport bounds and causes a visible dark layer artifact every ~8s
+- `overflow-x: hidden` on `body` breaks `position: fixed` on `::before` — use a real `<div id="grain">` instead
+- Fonts: `@font-face url()` pointing to TTF files in assets/ — Vercel serves them. No `local()` fallback needed since files are bundled.
 
 ---
 
 ## Last Updated
-2026-04-17 — Agent 8 Cover Letter Generator: generate + self-review loop + Awesome-CV ZIP output. Jobs Board CV Tailor modal extended with cover letter preview + scorecard. My Applications "Cover Letter" button (cover-letter-only flow, no CV tailoring). Manual app API variants (preview-manual, tailor-manual, cover-letter endpoints). cv_tailor.py refactored to run_from_job() core. Ollama models inventory noted. gemma3:12b planned for next session.
+2026-06-05 — Session 9: Phase 7 observability complete. Langfuse @observe + anthropic/openai wrappers, AgentOps start/end session per call_llm, agentops_sessions DB table (workaround for missing list API), Traces tab in dashboard (Langfuse + AgentOps toggle), AgentOps stats enrichment via /v2/sessions/<id>/stats. Agent 2 switched to OpenAI Batch API (gpt-4o-mini). NVIDIA workers reduced to 1 (free-tier). .gitignore hardened (n8n/workflows, data/, .env.local, .mcp.json).

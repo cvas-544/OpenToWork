@@ -3,7 +3,7 @@
 # Used by launchd (com.opentowork.api)
 
 export DATABASE_URL="postgresql://finsenseAdmin:finsense%23RDS@localhost:15432/opentowork"
-PROJECT_DIR="/Users/vasuchukka/Desktop/desktop/AI/OpenToWork"
+PROJECT_DIR="/Users/vasuchukka/Desktop/Desktop/desktop/AI/OpenToWork"
 
 # Wait for SSH tunnel (port 15432) to be ready — retry up to 30s
 for i in $(seq 1 15); do

@@ -242,7 +242,7 @@ INSTRUCTIONS:
 
 Output only the letter body (4 paragraphs), no headers, no labels, no explanation."""
 
-    return call_llm(prompt, model="claude-sonnet-4-6", max_tokens=2000, agent_name="cover_letter_agent")
+    return call_llm(prompt, max_tokens=2000, speed="smart")
 
 
 def review_cover_letter(letter_text: str, job: dict) -> dict:
@@ -288,7 +288,7 @@ Return ONLY valid JSON:
   "suggestions": ["<specific improvement 1>", "<specific improvement 2>"]
 }}"""
 
-    text = call_llm(prompt, model="claude-sonnet-4-6", max_tokens=800, agent_name="cover_letter_agent")
+    text = call_llm(prompt, max_tokens=800, speed="smart")
     start = text.find("{")
     end = text.rfind("}") + 1
     result = json.loads(text[start:end])
@@ -336,7 +336,7 @@ INSTRUCTIONS:
 - Do NOT change facts, numbers, or tech stack references
 - Output only the revised letter body (4 paragraphs), no headers, no explanation"""
 
-    return call_llm(prompt, model="claude-sonnet-4-6", max_tokens=2000, agent_name="cover_letter_agent")
+    return call_llm(prompt, max_tokens=2000, speed="smart")
 
 
 def _parse_letter_from_skill_output(output: str) -> str:

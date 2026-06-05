@@ -9,12 +9,13 @@ import uuid
 import psycopg2
 import psycopg2.extras
 from collections import Counter
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from dotenv import load_dotenv
 from agents.run_logger import RunLogger
+from server.auth import hash_password, verify_password, create_token, get_current_user, require_admin
 
 load_dotenv()
 
@@ -25,7 +26,31 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
+
+# ─── JWT Auth Middleware ───────────────────────────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from server.auth import decode_token
+
+PUBLIC_PATHS = {"/health", "/auth/login"}
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in PUBLIC_PATHS or request.method == "OPTIONS":
+            return await call_next(request)
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        try:
+            request.state.user = decode_token(auth[7:])
+        except Exception:
+            return JSONResponse({"detail": "Invalid token"}, status_code=401)
+        return await call_next(request)
+
+app.add_middleware(AuthMiddleware)
 
 
 def get_db():
@@ -37,6 +62,87 @@ def get_db():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ─── Auth ─────────────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    role: str = "user"
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, email, password_hash, role FROM users WHERE email = %s", (req.email,))
+    user = cur.fetchone()
+    cur.close(); conn.close()
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_token(user["id"], user["email"], user["role"])
+    return {"token": token, "email": user["email"], "role": user["role"]}
+
+@app.post("/auth/register")
+def register(req: RegisterRequest, _admin=Depends(require_admin)):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id FROM users WHERE email = %s", (req.email,))
+    if cur.fetchone():
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Email already exists")
+    cur.execute(
+        "INSERT INTO users (email, password_hash, role) VALUES (%s, %s, %s) RETURNING id, email, role",
+        (req.email, hash_password(req.password), req.role)
+    )
+    new_user = cur.fetchone()
+    conn.commit(); cur.close(); conn.close()
+    return {"id": new_user["id"], "email": new_user["email"], "role": new_user["role"]}
+
+@app.get("/auth/users")
+def list_users(_admin=Depends(require_admin)):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, email, role, created_at FROM users ORDER BY created_at")
+    users = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    for u in users:
+        if u.get("created_at"):
+            u["created_at"] = u["created_at"].isoformat()
+    return {"users": users}
+
+@app.delete("/auth/users/{user_id}")
+def delete_user(user_id: int, _admin=Depends(require_admin)):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    conn.commit(); cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/auth/me")
+def me(current_user=Depends(get_current_user)):
+    return {"id": current_user["sub"], "email": current_user["email"], "role": current_user["role"]}
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@app.post("/auth/change-password")
+def change_password(req: ChangePasswordRequest, current_user=Depends(get_current_user)):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT password_hash FROM users WHERE id = %s", (current_user["sub"],))
+    row = cur.fetchone()
+    if not row or not verify_password(req.current_password, row["password_hash"]):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    cur.execute("UPDATE users SET password_hash = %s WHERE id = %s", (hash_password(req.new_password), current_user["sub"]))
+    conn.commit(); cur.close(); conn.close()
+    return {"ok": True}
 
 
 # ─── LLM Mode Toggle ──────────────────────────────────────────────────────────
@@ -59,16 +165,88 @@ def set_llm_mode_endpoint(body: LLMModeRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── Per-User Settings ─────────────────────────────────────────────────────────
+
+class UserSettingsBody(BaseModel):
+    cv_text: Optional[str] = None
+    job_keywords: Optional[List[str]] = None
+    job_location: Optional[str] = None
+    llm_provider: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    llm_model_fast: Optional[str] = None
+    llm_model_smart: Optional[str] = None
+    apify_token: Optional[str] = None
+    apify_token_public: Optional[str] = None
+    pipeline_agents: Optional[List[str]] = None
+    schedule_times: Optional[List[int]] = None
+
+
+@app.get("/settings/user")
+def get_user_settings(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """SELECT cv_text, job_keywords, job_location, llm_provider,
+                  llm_model_fast, llm_model_smart, apify_token, apify_token_public,
+                  pipeline_agents, schedule_times, updated_at
+           FROM user_settings WHERE user_id = %s""",
+        (uid,)
+    )
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if not row:
+        return {}
+    data = dict(row)
+    # Never return the raw API key — only whether it is set
+    data["updated_at"] = str(data["updated_at"]) if data.get("updated_at") else None
+    return data
+
+
+@app.put("/settings/user")
+def update_user_settings(body: UserSettingsBody, current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO user_settings (user_id, cv_text, job_keywords, job_location,
+            llm_provider, llm_api_key, llm_model_fast, llm_model_smart,
+            apify_token, apify_token_public, pipeline_agents, schedule_times, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (user_id) DO UPDATE SET
+            cv_text           = COALESCE(EXCLUDED.cv_text,           user_settings.cv_text),
+            job_keywords      = COALESCE(EXCLUDED.job_keywords,      user_settings.job_keywords),
+            job_location      = COALESCE(EXCLUDED.job_location,      user_settings.job_location),
+            llm_provider      = COALESCE(EXCLUDED.llm_provider,      user_settings.llm_provider),
+            llm_api_key       = COALESCE(EXCLUDED.llm_api_key,       user_settings.llm_api_key),
+            llm_model_fast    = COALESCE(EXCLUDED.llm_model_fast,    user_settings.llm_model_fast),
+            llm_model_smart   = COALESCE(EXCLUDED.llm_model_smart,   user_settings.llm_model_smart),
+            apify_token       = COALESCE(EXCLUDED.apify_token,       user_settings.apify_token),
+            apify_token_public= COALESCE(EXCLUDED.apify_token_public,user_settings.apify_token_public),
+            pipeline_agents   = COALESCE(EXCLUDED.pipeline_agents,   user_settings.pipeline_agents),
+            schedule_times    = COALESCE(EXCLUDED.schedule_times,    user_settings.schedule_times),
+            updated_at        = NOW()
+        """,
+        (uid, body.cv_text, body.job_keywords, body.job_location,
+         body.llm_provider, body.llm_api_key, body.llm_model_fast, body.llm_model_smart,
+         body.apify_token, body.apify_token_public, body.pipeline_agents, body.schedule_times),
+    )
+    conn.commit(); cur.close(); conn.close()
+    return {"status": "ok"}
+
+
 # ── Agent Run Endpoints ───────────────────────────────────────────────────────
 
 @app.post("/run/agent1")
-def run_agent1(run_id: Optional[str] = Query(default=None)):
+def run_agent1(run_id: Optional[str] = Query(default=None), current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     rid = run_id or str(uuid.uuid4())
-    logger = RunLogger(run_id=rid, agent_name="Agent 1 — Job Scraper")
+    logger = RunLogger(run_id=rid, agent_name="Agent 1 — Job Scraper", user_id=uid)
     logger.start()
     try:
         from agents.job_scraper import run
-        result = run()
+        result = run(user_id=uid)
         logger.success(jobs_found=len(result))
         return {"status": "ok", "run_id": rid, "new_jobs": len(result), "jobs": result}
     except Exception as e:
@@ -77,13 +255,14 @@ def run_agent1(run_id: Optional[str] = Query(default=None)):
 
 
 @app.post("/run/agent2")
-def run_agent2(run_id: Optional[str] = Query(default=None)):
+def run_agent2(run_id: Optional[str] = Query(default=None), current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     rid = run_id or str(uuid.uuid4())
-    logger = RunLogger(run_id=rid, agent_name="Agent 2 — CV Matcher")
+    logger = RunLogger(run_id=rid, agent_name="Agent 2 — CV Matcher", user_id=uid)
     logger.start()
     try:
         from agents.cv_matcher import run
-        result = run()
+        result = run(user_id=uid)
         passed = [j for j in result if j.get("score", 0) >= 60]
         logger.success(jobs_scored=len(result), jobs_passed=len(passed))
         return {"status": "ok", "run_id": rid, "result": result}
@@ -93,13 +272,14 @@ def run_agent2(run_id: Optional[str] = Query(default=None)):
 
 
 @app.post("/run/agent3")
-def run_agent3(run_id: Optional[str] = Query(default=None)):
+def run_agent3(run_id: Optional[str] = Query(default=None), current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     rid = run_id or str(uuid.uuid4())
-    logger = RunLogger(run_id=rid, agent_name="Agent 3 — Gap Analyst")
+    logger = RunLogger(run_id=rid, agent_name="Agent 3 — Gap Analyst", user_id=uid)
     logger.start()
     try:
         from agents.gap_analyst import run
-        result = run()
+        result = run(user_id=uid)
         logger.success(details={"gaps_analyzed": len(result)})
         return {"status": "ok", "run_id": rid, "result": result}
     except Exception as e:
@@ -108,13 +288,14 @@ def run_agent3(run_id: Optional[str] = Query(default=None)):
 
 
 @app.post("/run/agent4")
-def run_agent4(run_id: Optional[str] = Query(default=None)):
+def run_agent4(run_id: Optional[str] = Query(default=None), current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     rid = run_id or str(uuid.uuid4())
-    logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach")
+    logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach", user_id=uid)
     logger.start()
     try:
         from agents.interview_coach import run
-        result = run()
+        result = run(user_id=uid)
         logger.success(details={"prep_sets": len(result)})
         return {"status": "ok", "run_id": rid, "result": result}
     except Exception as e:
@@ -123,13 +304,14 @@ def run_agent4(run_id: Optional[str] = Query(default=None)):
 
 
 @app.post("/run/agent5")
-def run_agent5(run_id: Optional[str] = Query(default=None)):
+def run_agent5(run_id: Optional[str] = Query(default=None), current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     rid = run_id or str(uuid.uuid4())
-    logger = RunLogger(run_id=rid, agent_name="Agent 5 — Reporter")
+    logger = RunLogger(run_id=rid, agent_name="Agent 5 — Reporter", user_id=uid)
     logger.start()
     try:
         from agents.reporter import run
-        result = run()
+        result = run(user_id=uid)
         logger.success(details={"email_sent": result.get("email_sent", False)})
         return {"status": "ok", "run_id": rid, "result": result}
     except Exception as e:
@@ -138,9 +320,10 @@ def run_agent5(run_id: Optional[str] = Query(default=None)):
 
 
 @app.post("/run/agent6")
-def run_agent6(run_id: Optional[str] = Query(default=None)):
+def run_agent6(run_id: Optional[str] = Query(default=None), current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     rid = run_id or str(uuid.uuid4())
-    logger = RunLogger(run_id=rid, agent_name="Agent 6 — App Tracker")
+    logger = RunLogger(run_id=rid, agent_name="Agent 6 — App Tracker", user_id=uid)
     logger.start()
     try:
         from agents.app_tracker import run
@@ -150,6 +333,141 @@ def run_agent6(run_id: Optional[str] = Query(default=None)):
     except Exception as e:
         logger.fail(error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/run/pipeline/all")
+def run_pipeline_all(_admin=Depends(require_admin)):
+    """Run the full pipeline for every user in user_settings — in parallel background threads."""
+    import threading
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM user_settings ORDER BY user_id")
+    user_ids = [r[0] for r in cur.fetchall()]
+    cur.close(); conn.close()
+
+    if not user_ids:
+        return {"status": "ok", "message": "No users in user_settings", "users": []}
+
+    shared_run_id = str(uuid.uuid4())
+
+    def _run_for_user(uid: int):
+        # Load which agents this user has enabled
+        try:
+            _conn = get_db(); _cur = _conn.cursor()
+            _cur.execute("SELECT pipeline_agents FROM user_settings WHERE user_id = %s", (uid,))
+            _row = _cur.fetchone()
+            _cur.close(); _conn.close()
+            enabled = set(_row[0]) if _row and _row[0] else {"agent1", "agent2", "agent3", "agent4", "agent5"}
+        except Exception:
+            enabled = {"agent1", "agent2", "agent3", "agent4", "agent5"}
+
+        print(f"[Pipeline] Starting for user {uid} — enabled: {sorted(enabled)} (run {shared_run_id})")
+        try:
+            if "agent1" in enabled:
+                from agents.job_scraper import run as scrape
+                logger1 = RunLogger(run_id=shared_run_id, agent_name="Agent 1 — Job Scraper", user_id=uid)
+                logger1.start()
+                new_jobs = scrape(user_id=uid)
+                logger1.success(jobs_found=len(new_jobs))
+
+            if "agent2" in enabled:
+                from agents.cv_matcher import run as match
+                logger2 = RunLogger(run_id=shared_run_id, agent_name="Agent 2 — CV Matcher", user_id=uid)
+                logger2.start()
+                scored = match(user_id=uid)
+                passed = [j for j in scored if j.get("score", 0) >= 60]
+                logger2.success(jobs_scored=len(scored), jobs_passed=len(passed))
+
+            if "agent3" in enabled:
+                from agents.gap_analyst import run as gaps
+                logger3 = RunLogger(run_id=shared_run_id, agent_name="Agent 3 — Gap Analyst", user_id=uid)
+                logger3.start()
+                gap_result = gaps(user_id=uid)
+                logger3.success(details={"gaps_analyzed": len(gap_result)})
+
+            print(f"[Pipeline] Done for user {uid}")
+        except Exception as e:
+            print(f"[Pipeline] Error for user {uid}: {e}")
+
+    threads = []
+    for uid in user_ids:
+        t = threading.Thread(target=_run_for_user, args=(uid,), daemon=True)
+        t.start()
+        threads.append(t)
+
+    return {
+        "status": "ok",
+        "run_id": shared_run_id,
+        "users": user_ids,
+        "message": f"Pipeline started for {len(user_ids)} user(s)",
+    }
+
+
+@app.post("/run/pipeline/due")
+def run_pipeline_due(_admin=Depends(require_admin)):
+    """Called every hour by cron — fires pipeline only for users whose schedule_times includes the current Munich hour."""
+    import threading
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    current_hour = datetime.now(ZoneInfo("Europe/Berlin")).hour
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT user_id FROM user_settings WHERE %s = ANY(schedule_times) ORDER BY user_id",
+        (current_hour,)
+    )
+    due_users = [r[0] for r in cur.fetchall()]
+    cur.close(); conn.close()
+
+    if not due_users:
+        return {"status": "ok", "hour": current_hour, "users": [], "message": "No users scheduled for this Munich hour"}
+
+    shared_run_id = str(uuid.uuid4())
+
+    def _run_for_user(uid: int):
+        try:
+            _conn = get_db(); _cur = _conn.cursor()
+            _cur.execute("SELECT pipeline_agents FROM user_settings WHERE user_id = %s", (uid,))
+            _row = _cur.fetchone()
+            _cur.close(); _conn.close()
+            enabled = set(_row[0]) if _row and _row[0] else {"agent1", "agent2", "agent3"}
+        except Exception:
+            enabled = {"agent1", "agent2", "agent3"}
+
+        print(f"[Pipeline/due] user={uid} Munich hour={current_hour} enabled={sorted(enabled)}")
+        try:
+            if "agent1" in enabled:
+                from agents.job_scraper import run as scrape
+                l1 = RunLogger(run_id=shared_run_id, agent_name="Agent 1 — Job Scraper", user_id=uid)
+                l1.start(); new_jobs = scrape(user_id=uid); l1.success(jobs_found=len(new_jobs))
+
+            if "agent2" in enabled:
+                from agents.cv_matcher import run as match
+                l2 = RunLogger(run_id=shared_run_id, agent_name="Agent 2 — CV Matcher", user_id=uid)
+                l2.start(); scored = match(user_id=uid)
+                l2.success(jobs_scored=len(scored), jobs_passed=len([j for j in scored if j.get("score", 0) >= 60]))
+
+            if "agent3" in enabled:
+                from agents.gap_analyst import run as gaps
+                l3 = RunLogger(run_id=shared_run_id, agent_name="Agent 3 — Gap Analyst", user_id=uid)
+                l3.start(); gap_result = gaps(user_id=uid); l3.success(details={"gaps_analyzed": len(gap_result)})
+
+        except Exception as e:
+            print(f"[Pipeline/due] Error for user {uid}: {e}")
+
+    for uid in due_users:
+        threading.Thread(target=_run_for_user, args=(uid,), daemon=True).start()
+
+    return {
+        "status": "ok",
+        "run_id": shared_run_id,
+        "hour": current_hour,
+        "users": due_users,
+        "message": f"Pipeline started for {len(due_users)} user(s) scheduled at Munich hour {current_hour}",
+    }
 
 
 # ── CV Tailor Endpoints ───────────────────────────────────────────────────────
@@ -486,10 +804,11 @@ class SkillsBody(BaseModel):
 
 
 @app.get("/profile")
-def get_profile():
+def get_profile(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
+    cur.execute("SELECT skills FROM user_profile WHERE user_id = %s LIMIT 1", (uid,))
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -499,16 +818,17 @@ def get_profile():
 
 
 @app.post("/profile/skills")
-def update_skills(body: SkillsBody):
+def update_skills(body: SkillsBody, current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO user_profile (user_id, skills, updated_at)
-        VALUES ('default', %s, NOW())
+        VALUES (%s, %s, NOW())
         ON CONFLICT (user_id) DO UPDATE SET skills = EXCLUDED.skills, updated_at = NOW()
         """,
-        (json.dumps(body.skills),),
+        (uid, json.dumps(body.skills)),
     )
     conn.commit()
     cur.close()
@@ -548,19 +868,20 @@ def _user_has_skill(market_skill: str, user_skills: set) -> bool:
 
 
 @app.get("/data/radar")
-def get_radar():
+def get_radar(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     # 1. Skills the user HAS — from matched_skills on high-score jobs (Agent 2 output)
     cur.execute("""
         SELECT DISTINCT lower(unnest(matched_skills)) AS skill
-        FROM job_listings WHERE score >= 80 AND matched_skills IS NOT NULL
-    """)
+        FROM job_listings WHERE score >= 80 AND matched_skills IS NOT NULL AND user_id = %s
+    """, (uid,))
     matched_set = {r["skill"] for r in cur.fetchall() if r["skill"]}
 
     # 2. Also pull user_profile skills as fallback
-    cur.execute("SELECT skills FROM user_profile WHERE user_id = 'default' LIMIT 1")
+    cur.execute("SELECT skills FROM user_profile WHERE user_id = %s LIMIT 1", (uid,))
     row = cur.fetchone()
     profile_set = {s.lower() for s in (row["skills"] if row else [])}
 
@@ -571,16 +892,16 @@ def get_radar():
     cur.execute("""
         SELECT skill, COUNT(*) AS frequency
         FROM (
-            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 80
+            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 80 AND user_id = %s
             UNION ALL
-            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 80
+            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 80 AND user_id = %s
         ) s
         WHERE skill IS NOT NULL AND trim(skill) != ''
         GROUP BY skill
         HAVING COUNT(*) >= 3
         ORDER BY frequency DESC
         LIMIT 15
-    """)
+    """, (uid, uid))
     rows = cur.fetchall()
 
     cur.close()
@@ -607,20 +928,21 @@ def get_radar():
 
 
 @app.get("/data/skills-daily")
-def get_skills_daily():
+def get_skills_daily(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT skill, COUNT(*) AS count
         FROM (
-            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 80
+            SELECT unnest(matched_skills) AS skill FROM job_listings WHERE score >= 80 AND user_id = %s
             UNION ALL
-            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 80
+            SELECT unnest(missing_skills) AS skill FROM job_listings WHERE score >= 80 AND user_id = %s
         ) s
         WHERE skill IS NOT NULL AND trim(skill) != ''
         GROUP BY skill
         ORDER BY count DESC
-    """)
+    """, (uid, uid))
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
@@ -628,7 +950,8 @@ def get_skills_daily():
 
 
 @app.get("/data/jobs")
-def get_jobs(limit: int = 200, score_min: int = 0):
+def get_jobs(limit: int = 200, score_min: int = 0, current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
@@ -636,11 +959,11 @@ def get_jobs(limit: int = 200, score_min: int = 0):
                jl.score, jl.date_posted, jl.scraped_at, jl.matched_skills, jl.missing_skills, jl.description,
                COALESCE(a.status, 'new') AS status
         FROM job_listings jl
-        LEFT JOIN applications a ON a.job_id = jl.id
-        WHERE (jl.score >= %s OR jl.score IS NULL)
+        LEFT JOIN applications a ON a.job_id = jl.id AND a.user_id = %s
+        WHERE jl.user_id = %s AND (jl.score >= %s OR jl.score IS NULL)
         ORDER BY jl.scraped_at DESC
         LIMIT %s
-    """, (score_min, limit))
+    """, (uid, uid, score_min, limit))
     jobs = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
@@ -657,15 +980,17 @@ def get_jobs(limit: int = 200, score_min: int = 0):
 
 
 @app.get("/data/gaps")
-def get_gaps():
+def get_gaps(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT skill, frequency, project_mapping, how_to_implement, online_course, example_project, last_updated
         FROM skill_gaps
+        WHERE user_id = %s
         ORDER BY frequency DESC
         LIMIT 50
-    """)
+    """, (uid,))
     gaps = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
@@ -676,7 +1001,8 @@ def get_gaps():
 
 
 @app.get("/data/interview-prep")
-def get_interview_prep():
+def get_interview_prep(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
@@ -684,9 +1010,10 @@ def get_interview_prep():
                jl.title, jl.company, jl.score, jl.url, jl.location
         FROM interview_prep ip
         JOIN job_listings jl ON ip.job_id = jl.id
+        WHERE ip.user_id = %s
         ORDER BY ip.generated_at DESC
         LIMIT 20
-    """)
+    """, (uid,))
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
@@ -704,28 +1031,53 @@ class StatusBody(BaseModel):
     notes: str = ""
 
 
-@app.post("/applications/{job_id}/status")
-def update_application_status(job_id: int, body: StatusBody):
-    try:
-        from agents.app_tracker import update_status
-        result = update_status(job_id, body.status, body.notes)
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
+VALID_STATUSES = {"new", "saved", "applied", "interview", "offer", "rejected"}
 
-        # Auto-trigger Agent 4 when status is set to Interview
+@app.post("/applications/{job_id}/status")
+def update_application_status(job_id: int, body: StatusBody, current_user=Depends(get_current_user)):
+    if body.status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {VALID_STATUSES}")
+    uid = current_user["sub"]
+    try:
+        from datetime import datetime
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO applications (job_id, user_id, status, applied_at, last_updated, notes)
+            VALUES (%s, %s, %s, %s, NOW(), %s)
+            ON CONFLICT (job_id, user_id) DO UPDATE SET
+                status = EXCLUDED.status,
+                last_updated = NOW(),
+                notes = COALESCE(NULLIF(EXCLUDED.notes, ''), applications.notes),
+                applied_at = CASE
+                    WHEN EXCLUDED.status = 'applied' AND applications.applied_at IS NULL
+                    THEN NOW()
+                    ELSE applications.applied_at
+                END
+            RETURNING id, status
+            """,
+            (job_id, uid, body.status, datetime.now() if body.status == "applied" else None, body.notes),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        result = {"application_id": row[0], "status": row[1]}
+
         if body.status.lower() == "interview":
             import threading
-            def run_agent4_async():
+            def run_agent4_async(_uid=uid, _job_id=job_id):
                 try:
                     rid = str(uuid.uuid4())
-                    logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach")
+                    logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach", user_id=_uid)
                     logger.start()
                     from agents.interview_coach import run
-                    prep = run()
+                    prep = run(user_id=_uid)
                     logger.success(details={"prep_sets": len(prep)})
-                    print(f"[API] Agent 4 triggered for job {job_id} — {len(prep)} prep set(s) generated")
+                    print(f"[API] Agent 4 triggered for job {_job_id} — {len(prep)} prep set(s) generated")
                 except Exception as e:
-                    print(f"[API] Agent 4 failed for job {job_id}: {e}")
+                    print(f"[API] Agent 4 failed for job {_job_id}: {e}")
             threading.Thread(target=run_agent4_async, daemon=True).start()
             result["interview_prep"] = "generating"
 
@@ -737,21 +1089,43 @@ def update_application_status(job_id: int, body: StatusBody):
 
 
 @app.get("/data/pipeline")
-def get_pipeline_data():
+def get_pipeline_data(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     try:
-        from agents.app_tracker import get_pipeline
-        return get_pipeline()
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT a.status, COUNT(*) as count,
+                   json_agg(json_build_object(
+                       'job_id', jl.id, 'title', jl.title, 'company', jl.company,
+                       'score', jl.score, 'applied_at', a.applied_at, 'notes', a.notes
+                   ) ORDER BY a.last_updated DESC) as jobs
+            FROM applications a
+            JOIN job_listings jl ON a.job_id = jl.id
+            WHERE a.user_id = %s
+            GROUP BY a.status
+            """,
+            (uid,),
+        )
+        pipeline = {s: {"count": 0, "jobs": []} for s in VALID_STATUSES}
+        for row in cur.fetchall():
+            pipeline[row[0]] = {"count": row[1], "jobs": row[2]}
+        cur.close()
+        conn.close()
+        return pipeline
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/data/stats")
-def get_stats():
+def get_stats(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     # Total jobs + last run
-    cur.execute("SELECT COUNT(*) AS total, MAX(scraped_at) AS last_run FROM job_listings")
+    cur.execute("SELECT COUNT(*) AS total, MAX(scraped_at) AS last_run FROM job_listings WHERE user_id = %s", (uid,))
     row = cur.fetchone()
     total = row["total"]
     last_run = row["last_run"]
@@ -759,43 +1133,44 @@ def get_stats():
     # Today's new jobs
     cur.execute("""
         SELECT COUNT(*) AS today FROM job_listings
-        WHERE scraped_at >= CURRENT_DATE
-    """)
+        WHERE scraped_at >= CURRENT_DATE AND user_id = %s
+    """, (uid,))
     today = cur.fetchone()["today"]
 
     # Applied + Interviews (from applications + manual_applications)
     cur.execute("""
         SELECT status, COUNT(*) AS count FROM (
-            SELECT status FROM applications WHERE status IN ('applied', 'interview', 'offer')
+            SELECT status FROM applications WHERE status IN ('applied', 'interview', 'offer', 'rejected') AND user_id = %s
             UNION ALL
-            SELECT status FROM manual_applications WHERE status IN ('applied', 'interview', 'offer')
+            SELECT status FROM manual_applications WHERE status IN ('applied', 'interview', 'offer', 'rejected') AND user_id = %s
         ) combined
         GROUP BY status
-    """)
+    """, (uid, uid))
     status_counts = {r["status"]: r["count"] for r in cur.fetchall()}
 
     # Daily trend — all time
     cur.execute("""
         SELECT TO_CHAR(DATE(scraped_at), 'DD Mon') AS day, COUNT(*) AS jobs
-        FROM job_listings
+        FROM job_listings WHERE user_id = %s
         GROUP BY DATE(scraped_at)
         ORDER BY DATE(scraped_at)
-    """)
+    """, (uid,))
     trend = [dict(r) for r in cur.fetchall()]
 
     # Pipeline funnel (scraped + manual combined)
     cur.execute("""
         SELECT
-          (SELECT COUNT(*) FROM job_listings) AS found,
+          (SELECT COUNT(*) FROM job_listings WHERE user_id = %s) AS found,
           SUM(CASE WHEN status = 'applied' THEN 1 ELSE 0 END) AS applied,
           SUM(CASE WHEN status = 'interview' THEN 1 ELSE 0 END) AS interview,
-          SUM(CASE WHEN status = 'offer' THEN 1 ELSE 0 END) AS offer
+          SUM(CASE WHEN status = 'offer' THEN 1 ELSE 0 END) AS offer,
+          SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected
         FROM (
-            SELECT status FROM applications
+            SELECT status FROM applications WHERE user_id = %s
             UNION ALL
-            SELECT status FROM manual_applications
+            SELECT status FROM manual_applications WHERE user_id = %s
         ) combined
-    """)
+    """, (uid, uid, uid))
     funnel = cur.fetchone()
 
     cur.close()
@@ -804,6 +1179,7 @@ def get_stats():
     pipeline = [
         {"stage": "Found",     "count": funnel["found"]},
         {"stage": "Applied",   "count": funnel["applied"]},
+        {"stage": "Rejected",  "count": funnel["rejected"]},
         {"stage": "Interview", "count": funnel["interview"]},
         {"stage": "Offer",     "count": funnel["offer"]},
     ]
@@ -811,7 +1187,7 @@ def get_stats():
     return {
         "total": total,
         "today": today,
-        "applied": status_counts.get("applied", 0),
+        "applied": sum(status_counts.get(s, 0) for s in ("applied", "interview", "offer", "rejected")),
         "interviews": status_counts.get("interview", 0),
         "trend": trend,
         "pipeline": pipeline,
@@ -820,16 +1196,17 @@ def get_stats():
 
 
 @app.get("/data/scraper-stats")
-def get_scraper_stats():
+def get_scraper_stats(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     # Total jobs per source
     cur.execute("""
         SELECT source, COUNT(*) AS total
-        FROM job_listings
+        FROM job_listings WHERE user_id = %s
         GROUP BY source
-    """)
+    """, (uid,))
     totals = {r["source"]: r["total"] for r in cur.fetchall()}
 
     # Daily jobs per source — all time, last 30 distinct days
@@ -839,15 +1216,15 @@ def get_scraper_stats():
                source,
                COUNT(*) AS count
         FROM job_listings
-        WHERE DATE(scraped_at) IN (
+        WHERE user_id = %s AND DATE(scraped_at) IN (
             SELECT DISTINCT DATE(scraped_at)
-            FROM job_listings
+            FROM job_listings WHERE user_id = %s
             ORDER BY DATE(scraped_at) DESC
             LIMIT 30
         )
         GROUP BY DATE(scraped_at), source
         ORDER BY DATE(scraped_at)
-    """)
+    """, (uid, uid))
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -886,16 +1263,17 @@ class ManualStatusBody(BaseModel):
 
 
 @app.post("/manual-applications")
-def create_manual_application(body: ManualAppBody):
+def create_manual_application(body: ManualAppBody, current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         """
-        INSERT INTO manual_applications (title, company, description, url, status, notes, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+        INSERT INTO manual_applications (title, company, description, url, status, notes, user_id, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
         RETURNING *
         """,
-        (body.title, body.company, body.description, body.url, body.status, body.notes),
+        (body.title, body.company, body.description, body.url, body.status, body.notes, uid),
     )
     row = dict(cur.fetchone())
     conn.commit()
@@ -907,10 +1285,11 @@ def create_manual_application(body: ManualAppBody):
 
 
 @app.get("/manual-applications")
-def list_manual_applications():
+def list_manual_applications(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM manual_applications ORDER BY created_at DESC")
+    cur.execute("SELECT * FROM manual_applications WHERE user_id = %s ORDER BY created_at DESC", (uid,))
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
@@ -921,17 +1300,18 @@ def list_manual_applications():
 
 
 @app.patch("/manual-applications/{app_id}/status")
-def update_manual_application_status(app_id: int, body: ManualStatusBody):
+def update_manual_application_status(app_id: int, body: ManualStatusBody, current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         """
         UPDATE manual_applications
         SET status = %s, notes = COALESCE(NULLIF(%s, ''), notes), updated_at = NOW()
-        WHERE id = %s
+        WHERE id = %s AND user_id = %s
         RETURNING *
         """,
-        (body.status, body.notes or "", app_id),
+        (body.status, body.notes or "", app_id, uid),
     )
     row = cur.fetchone()
     conn.commit()
@@ -946,17 +1326,17 @@ def update_manual_application_status(app_id: int, body: ManualStatusBody):
     # Auto-trigger Agent 4 when moved to Interview
     if body.status.lower() == "interview":
         import threading
-        def run_agent4_async():
+        def run_agent4_async(_uid=uid, _app_id=app_id):
             try:
                 rid = str(uuid.uuid4())
-                logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach")
+                logger = RunLogger(run_id=rid, agent_name="Agent 4 — Interview Coach", user_id=_uid)
                 logger.start()
                 from agents.interview_coach import run
-                prep = run()
+                prep = run(user_id=_uid)
                 logger.success(details={"prep_sets": len(prep)})
-                print(f"[API] Agent 4 triggered for manual app {app_id} — {len(prep)} prep set(s)")
+                print(f"[API] Agent 4 triggered for manual app {_app_id} — {len(prep)} prep set(s)")
             except Exception as e:
-                print(f"[API] Agent 4 failed for manual app {app_id}: {e}")
+                print(f"[API] Agent 4 failed for manual app {_app_id}: {e}")
         threading.Thread(target=run_agent4_async, daemon=True).start()
         row["interview_prep"] = "generating"
 
@@ -964,10 +1344,11 @@ def update_manual_application_status(app_id: int, body: ManualStatusBody):
 
 
 @app.delete("/manual-applications/{app_id}")
-def delete_manual_application(app_id: int):
+def delete_manual_application(app_id: int, current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM manual_applications WHERE id = %s", (app_id,))
+    cur.execute("DELETE FROM manual_applications WHERE id = %s AND user_id = %s", (app_id, uid))
     deleted = cur.rowcount
     conn.commit()
     cur.close()
@@ -978,7 +1359,8 @@ def delete_manual_application(app_id: int):
 
 
 @app.get("/data/automation-logs")
-def get_automation_logs():
+def get_automation_logs(current_user=Depends(get_current_user)):
+    uid = current_user["sub"]
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
@@ -1002,10 +1384,11 @@ def get_automation_logs():
             BOOL_AND(status = 'success') AS all_passed,
             BOOL_OR(status = 'failed') AS any_failed
         FROM automation_logs
+        WHERE user_id = %s
         GROUP BY run_id
         ORDER BY MIN(started_at) DESC
         LIMIT 50
-    """)
+    """, (uid,))
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
@@ -1013,3 +1396,99 @@ def get_automation_logs():
         r["run_started_at"] = str(r["run_started_at"]) if r["run_started_at"] else None
         r["run_completed_at"] = str(r["run_completed_at"]) if r["run_completed_at"] else None
     return {"runs": rows}
+
+
+# ── Langfuse traces proxy ──────────────────────────────────────────────────────
+@app.get("/data/traces")
+def get_traces(limit: int = 50, current_user=Depends(get_current_user)):
+    """Proxy Langfuse traces filtered by current user."""
+    import httpx
+    uid = str(current_user["sub"])
+    langfuse_host = os.environ.get("LANGFUSE_HOST", "http://localhost:3010")
+    secret_key    = os.environ.get("LANGFUSE_SECRET_KEY", "")
+    public_key    = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+    if not secret_key:
+        return {"traces": [], "message": "Langfuse not configured"}
+    try:
+        resp = httpx.get(
+            f"{langfuse_host}/api/public/traces",
+            params={"limit": limit, "userId": uid},
+            auth=(public_key, secret_key),
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {"traces": data.get("data", []), "meta": data.get("meta", {})}
+    except Exception as e:
+        return {"traces": [], "error": str(e)}
+
+
+@app.get("/data/agentops")
+def get_agentops_sessions(limit: int = 50, current_user=Depends(get_current_user)):
+    """Read AgentOps sessions from our DB, enriched with live stats from AgentOps API."""
+    import httpx
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    user_id = int(current_user["sub"])
+    ao_api_key = os.environ.get("AGENTOPS_API_KEY", "")
+
+    try:
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT session_id, provider, model, speed, end_state, created_at
+            FROM agentops_sessions
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (user_id, limit),
+        )
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+    except Exception as e:
+        return {"sessions": [], "error": str(e)}
+
+    sessions = [
+        {
+            "session_id": r[0],
+            "provider": r[1],
+            "model": r[2],
+            "speed": r[3],
+            "end_state": r[4],
+            "created_at": r[5].isoformat() if r[5] else None,
+            "detail_url": f"https://app.agentops.ai/sessions/{r[0]}" if r[0] else None,
+        }
+        for r in rows
+    ]
+
+    # Enrich with live stats from AgentOps (cost, tokens, duration, llm_calls)
+    def _fetch_stats(session: dict) -> dict:
+        sid = session.get("session_id")
+        if not sid or not ao_api_key:
+            return session
+        try:
+            resp = httpx.get(
+                f"https://api.agentops.ai/v2/sessions/{sid}/stats",
+                headers={"X-Agentops-Api-Key": ao_api_key},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                stats = resp.json()
+                session["cost"]       = stats.get("accumulated_cost")
+                session["tokens"]     = stats.get("prompt_tokens", 0) + stats.get("completion_tokens", 0)
+                session["llm_calls"]  = stats.get("llm_calls", stats.get("counts", {}).get("llms"))
+                session["duration_ms"] = stats.get("duration")
+        except Exception:
+            pass
+        return session
+
+    if ao_api_key and sessions:
+        with ThreadPoolExecutor(max_workers=min(10, len(sessions))) as pool:
+            futures = {pool.submit(_fetch_stats, s): s for s in sessions}
+            enriched = [f.result() for f in as_completed(futures)]
+        enriched.sort(key=lambda s: s.get("created_at") or "", reverse=True)
+        sessions = enriched
+
+    return {"sessions": sessions, "meta": {"total": len(sessions)}}

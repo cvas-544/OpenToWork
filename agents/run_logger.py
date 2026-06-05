@@ -23,9 +23,10 @@ load_dotenv()
 
 
 class RunLogger:
-    def __init__(self, run_id: str, agent_name: str):
+    def __init__(self, run_id: str, agent_name: str, user_id: int = 1):
         self.run_id = run_id
         self.agent_name = agent_name
+        self.user_id = user_id
         self.started_at = None
         self.log_id = None
 
@@ -37,9 +38,9 @@ class RunLogger:
         conn = self._conn()
         cur = conn.cursor()
         cur.execute(
-            """INSERT INTO automation_logs (run_id, agent_name, status, started_at)
-               VALUES (%s, %s, 'running', %s) RETURNING id""",
-            (self.run_id, self.agent_name, self.started_at),
+            """INSERT INTO automation_logs (run_id, agent_name, status, started_at, user_id)
+               VALUES (%s, %s, 'running', %s, %s) RETURNING id""",
+            (self.run_id, self.agent_name, self.started_at, self.user_id),
         )
         self.log_id = cur.fetchone()[0]
         conn.commit()

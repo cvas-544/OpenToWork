@@ -1,7 +1,6 @@
 """
 Agent 4 — Interview Coach
-Model: claude-sonnet-4-6 (high-quality generation)
-Trigger: only for jobs where application status = 'Interview'
+Input: jobs where application status = 'Interview' for a user
 Output: 10 technical Qs, STAR frameworks, culture Q&A, questions to ask — stored in interview_prep
 """
 
@@ -14,7 +13,7 @@ from agents.llm_client import call_llm
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 
-def generate_prep(job: dict) -> dict:
+def generate_prep(job: dict, user_id: int) -> dict:
     prompt = f"""You are an expert technical interview coach. Generate comprehensive interview prep for this job.
 
 Job: {job['title']} at {job['company']}
@@ -48,19 +47,19 @@ Return ONLY valid JSON with this structure:
 Generate exactly 10 questions (mix of difficulties). Include 3 culture Q&A pairs and 5 questions to ask the interviewer."""
 
     try:
-        text = call_llm(prompt, model="claude-sonnet-4-6", max_tokens=4000)
+        text = call_llm(prompt, max_tokens=4000, user_id=user_id, speed="smart")
         return json.loads(text)
     except json.JSONDecodeError:
         return {"questions": [], "culture_qa": [], "questions_to_ask": []}
 
 
-def save_prep(job_id: int, prep: dict):
+def save_prep(job_id: int, prep: dict, user_id: int):
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO interview_prep (job_id, questions, culture_qa, questions_to_ask, generated_at)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO interview_prep (job_id, questions, culture_qa, questions_to_ask, generated_at, user_id)
+        VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT DO NOTHING
         """,
         (
@@ -69,6 +68,7 @@ def save_prep(job_id: int, prep: dict):
             json.dumps(prep.get("culture_qa", [])),
             prep.get("questions_to_ask", []),
             datetime.now(),
+            user_id,
         ),
     )
     conn.commit()
@@ -76,17 +76,18 @@ def save_prep(job_id: int, prep: dict):
     conn.close()
 
 
-def fetch_interview_jobs() -> list[dict]:
-    """Fetch jobs where application status has been set to 'Interview' and no prep exists yet."""
+def fetch_interview_jobs(user_id: int) -> list[dict]:
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     cur.execute(
         """SELECT jl.id, jl.title, jl.company, jl.location, jl.description, jl.score, jl.matched_skills, jl.missing_skills
            FROM job_listings jl
-           JOIN applications a ON a.job_id = jl.id
+           JOIN applications a ON a.job_id = jl.id AND a.user_id = jl.user_id
            WHERE a.status = 'Interview'
-           AND jl.id NOT IN (SELECT job_id FROM interview_prep)
-           ORDER BY jl.score DESC"""
+           AND jl.user_id = %s
+           AND jl.id NOT IN (SELECT job_id FROM interview_prep WHERE user_id = %s)
+           ORDER BY jl.score DESC""",
+        (user_id, user_id)
     )
     rows = cur.fetchall()
     cur.close()
@@ -98,15 +99,15 @@ def fetch_interview_jobs() -> list[dict]:
     ]
 
 
-def run() -> list[dict]:
-    jobs = fetch_interview_jobs()
-    print(f"[Agent 4] Generating interview prep for {len(jobs)} jobs with status 'Interview'")
+def run(user_id: int = 1) -> list[dict]:
+    jobs = fetch_interview_jobs(user_id)
+    print(f"[Agent 4] Generating interview prep for {len(jobs)} jobs (user {user_id})")
 
     results = []
     for job in jobs:
         print(f"  Prepping: {job['title']} @ {job['company']} (score: {job['score']})")
-        prep = generate_prep(job)
-        save_prep(job["db_id"], prep)
+        prep = generate_prep(job, user_id)
+        save_prep(job["db_id"], prep, user_id)
         results.append({"job": job["title"], "company": job["company"], "prep": prep})
 
     print(f"[Agent 4] Done — {len(results)} prep sets generated")

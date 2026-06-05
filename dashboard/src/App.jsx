@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from "react";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { LoginPage } from "./components/LoginPage";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication, fetchLLMMode, setLLMMode, updateApplicationStatus } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication, fetchLLMMode, setLLMMode, updateApplicationStatus, listUsers, createUser, deleteUser, changePassword, getUserSettings, updateUserSettings, getTraces, getAgentOpsSessions } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
@@ -129,8 +131,8 @@ const starQuestions = [
 
 const pipeline = [
   { stage: "Found", count: 98 },
-  { stage: "Saved", count: 24 },
   { stage: "Applied", count: 11 },
+  { stage: "Rejected", count: 4 },
   { stage: "Interview", count: 3 },
   { stage: "Offer", count: 0 },
 ];
@@ -155,6 +157,8 @@ const navItems = [
   { id: "analytics", label: "Analytics", icon: "◉" },
   { id: "automation", label: "Automation Logs", icon: "⟳" },
   { id: "scraper", label: "Scrapper", icon: "⟐" },
+  { id: "traces", label: "Traces", icon: "⟴" },
+  { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -204,7 +208,8 @@ const Overview = () => {
   const [carouselIdx, setCarouselIdx] = useState(0);
   const CARD_W = 232; // 220px card + 12px gap
   const VISIBLE = 6;
-  const topMatches = jobs.filter(j => j.score >= 85).sort((a, b) => b.score - a.score).slice(0, 10);
+  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const topMatches = jobs.filter(j => j.score >= 85 && new Date(j.scraped_at) >= oneWeekAgo).sort((a, b) => b.score - a.score).slice(0, 10);
   const maxIdx = Math.max(0, topMatches.length - VISIBLE);
   const moveCarousel = (dir) => setCarouselIdx(i => Math.max(0, Math.min(maxIdx, i + dir)));
   return (
@@ -263,7 +268,7 @@ const Overview = () => {
             <div key={p.stage} style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 64, fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray600 }}>{p.stage}</div>
               <div style={{ flex: 1, height: 6, background: T.gray100, borderRadius: 99, overflow: "hidden" }}>
-                <div style={{ width: `${(p.count / 98) * 100}%`, height: "100%", background: i === 0 ? T.gray400 : T.orange, borderRadius: 99, transition: "width 1s ease" }} />
+                <div style={{ width: `${(p.count / 98) * 100}%`, height: "100%", background: i === 0 ? T.gray400 : p.stage === "Rejected" ? "#e05252" : T.orange, borderRadius: 99, transition: "width 1s ease" }} />
               </div>
               <div style={{ width: 24, textAlign: "right", fontSize: 12, fontWeight: 700, fontFamily: "'DM Mono', monospace", color: T.black }}>{p.count}</div>
             </div>
@@ -294,7 +299,7 @@ const Overview = () => {
     {/* Top Matches — transform carousel */}
     <Card style={{ padding: "24px 28px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <Label>Today's Top Matches</Label>
+        <Label>This Week's Top Matches</Label>
         <div style={{ display: "flex", gap: 6 }}>
           {[{ dir: -1, icon: "←" }, { dir: 1, icon: "→" }].map(({ dir, icon }) => (
             <button key={dir} onClick={() => moveCarousel(dir)} style={{
@@ -309,7 +314,7 @@ const Overview = () => {
           ))}
         </div>
       </div>
-      {topMatches.length === 0 && <EmptyState message="No top matches yet" sub="Run the pipeline to score jobs" />}
+      {topMatches.length === 0 && <EmptyState message="No top matches this week" sub="No jobs scored ≥85 in the last 7 days" />}
       <div style={{ overflow: "hidden" }}>
         <div style={{
           display: "flex", gap: 12,
@@ -1888,6 +1893,7 @@ const AGENTS = [
 
 const AgentRunner = () => {
   const { API } = useData();
+  const { token } = useAuth();
   const [running, setRunning] = useState({});   // { [agentId]: true }
   const [results, setResults] = useState({});   // { [agentId]: { ok, msg } }
 
@@ -1895,7 +1901,7 @@ const AgentRunner = () => {
     setRunning(p => ({ ...p, [agent.id]: true }));
     setResults(p => ({ ...p, [agent.id]: null }));
     try {
-      const res = await fetch(`${API}${agent.endpoint}`, { method: "POST" });
+      const res = await fetch(`${API}${agent.endpoint}`, { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {} });
       const data = await res.json();
       const ok = res.ok && data.status !== "error";
       const msg = ok
@@ -1952,12 +1958,13 @@ const AgentRunner = () => {
 
 const AutomationLogs = () => {
   const { API } = useData();
+  const { token } = useAuth();
   const [runs, setRuns] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API}/data/automation-logs`)
+    fetch(`${API}/data/automation-logs`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then(r => r.json())
       .then(d => {
         const raw = d.runs || [];
@@ -3072,8 +3079,670 @@ const ManualTracker = () => {
   );
 };
 
+// ─── Traces ───────────────────────────────────────────────────────────────────
+const TracesView = () => {
+  const [platform, setPlatform] = useState("langfuse"); // "langfuse" | "agentops"
+  const [traces, setTraces] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [meta, setMeta] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(null);
+  const [limit, setLimit] = useState(50);
+  const [aoError, setAoError] = useState(null);
+  const [lfError, setLfError] = useState(null);
+
+  const loadLangfuse = (lim) => {
+    setLoading(true); setExpanded(null); setLfError(null);
+    getTraces(lim).then(d => {
+      setTraces(d.traces || []);
+      setMeta(d.meta || {});
+      if (d.error) setLfError(d.error);
+      setLoading(false);
+    });
+  };
+
+  const loadAgentOps = (lim) => {
+    setLoading(true); setExpanded(null); setAoError(null);
+    getAgentOpsSessions(lim).then(d => {
+      setSessions(d.sessions || []);
+      setMeta(d.meta || {});
+      if (d.error) setAoError(d.error);
+      if (d.message) setAoError(d.message);
+      setLoading(false);
+    });
+  };
+
+  useEffect(() => {
+    if (platform === "langfuse") loadLangfuse(limit);
+    else loadAgentOps(limit);
+  }, [platform, limit]);
+
+  const cardStyle = { background: "rgba(255,255,255,0.72)", backdropFilter: "blur(14px)", borderRadius: 16, border: "1px solid rgba(255,255,255,0.55)", padding: "20px 24px", marginBottom: 20 };
+  const monoSm = { fontFamily: "'DM Mono', monospace", fontSize: 11 };
+  const pill = (bg, col) => ({ background: bg, color: col || "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 600, display: "inline-block" });
+
+  const statusColor = (s) => {
+    if (!s) return T.gray400;
+    const u = s.toUpperCase();
+    if (u === "SUCCESS" || u === "SUCCEEDED") return "#22c55e";
+    if (u === "ERROR" || u === "FAIL" || u === "FAILED") return "#ef4444";
+    return T.amber;
+  };
+
+  const fmtTime = (iso) => {
+    if (!iso) return "—";
+    try { return new Date(iso).toLocaleString("de-DE", { timeZone: "Europe/Berlin", dateStyle: "short", timeStyle: "medium" }); }
+    catch { return iso; }
+  };
+
+  const fmtMs = (ms) => {
+    if (ms == null) return "—";
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
+
+  const fmtDuration = (start, end) => {
+    if (!start || !end) return "—";
+    const ms = new Date(end) - new Date(start);
+    return fmtMs(ms);
+  };
+
+  const PLATFORMS = [
+    { id: "langfuse",  label: "Langfuse",  color: "#0D9488", desc: "LLM call traces · self-hosted EC2" },
+    { id: "agentops",  label: "AgentOps",  color: "#7C3AED", desc: "Agent sessions · hosted SaaS" },
+  ];
+
+  const cur = PLATFORMS.find(p => p.id === platform);
+
+  return (
+    <div style={{ padding: "28px 32px", maxWidth: 1100 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 32, letterSpacing: "0.04em", color: T.black }}>Observability</h2>
+          <p style={{ ...monoSm, color: T.gray400, marginTop: 4 }}>Compare Langfuse vs AgentOps — pick one to keep</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ ...monoSm, color: T.gray400 }}>Show:</span>
+          {[25, 50, 100].map(n => (
+            <button key={n} onClick={() => setLimit(n)} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: limit === n ? T.orange : T.gray100, color: limit === n ? "#fff" : T.gray400, fontFamily: "'DM Mono', monospace", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{n}</button>
+          ))}
+          <button onClick={() => platform === "langfuse" ? loadLangfuse(limit) : loadAgentOps(limit)} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: T.gray100, color: T.gray400, fontFamily: "'DM Mono', monospace", fontSize: 11, cursor: "pointer" }}>↺</button>
+        </div>
+      </div>
+
+      {/* Platform toggle */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+        {PLATFORMS.map(p => (
+          <button key={p.id} onClick={() => { setPlatform(p.id); setExpanded(null); }} style={{ padding: "10px 20px", borderRadius: 12, border: `2px solid ${platform === p.id ? p.color : T.gray200}`, background: platform === p.id ? p.color + "18" : "rgba(255,255,255,0.6)", cursor: "pointer", textAlign: "left", minWidth: 180 }}>
+            <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 13, color: platform === p.id ? p.color : T.gray400 }}>{p.label}</div>
+            <div style={{ ...monoSm, color: T.gray400, marginTop: 2 }}>{p.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div style={{ ...cardStyle, textAlign: "center", padding: 40 }}>
+          <div style={{ ...monoSm, color: T.gray400 }}>Loading {cur.label}…</div>
+        </div>
+      )}
+
+      {/* ── Langfuse panel ── */}
+      {!loading && platform === "langfuse" && (
+        <>
+          {lfError && (
+            <div style={{ ...cardStyle, background: "#fef2f2", border: "1px solid #fecaca" }}>
+              <span style={{ ...monoSm, color: "#ef4444" }}>⚠ {lfError}</span>
+            </div>
+          )}
+          {traces.length === 0 && !lfError && (
+            <div style={{ ...cardStyle, textAlign: "center", padding: 48 }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>⟴</div>
+              <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 15, color: T.black, marginBottom: 6 }}>No Langfuse traces yet</div>
+              <div style={{ ...monoSm, color: T.gray400 }}>Run any agent — each LLM call will appear here once LANGFUSE_* keys are set on EC2.</div>
+            </div>
+          )}
+          {traces.length > 0 && (
+            <div style={cardStyle}>
+              <div style={{ ...monoSm, color: T.gray400, marginBottom: 12 }}>
+                {meta.totalItems != null ? `${meta.totalItems} total traces` : `${traces.length} traces`} · Munich time
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${T.gray200}` }}>
+                    {["Name", "Model", "Speed", "Latency", "Tokens", "Cost", "Status", "Time"].map(h => (
+                      <th key={h} style={{ ...monoSm, color: T.gray400, textAlign: "left", padding: "6px 10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {traces.map(t => {
+                    const obs = t.observations?.[0] || {};
+                    const isExp = expanded === t.id;
+                    const latencyMs = t.latency != null ? t.latency : (obs.latency != null ? obs.latency : null);
+                    const totalTokens = (t.usage?.input || 0) + (t.usage?.output || 0);
+                    const cost = t.usage?.totalCost != null ? `$${t.usage.totalCost.toFixed(4)}` : "—";
+                    const modelName = t.metadata?.model || obs.model || "—";
+                    const speed = t.metadata?.speed || obs.metadata?.speed || "—";
+                    return (
+                      <>
+                        <tr key={t.id} onClick={() => setExpanded(isExp ? null : t.id)} style={{ borderBottom: `1px solid ${T.gray100}`, cursor: "pointer", background: isExp ? "rgba(13,148,136,0.04)" : "transparent" }}>
+                          <td style={{ padding: "9px 10px", fontFamily: "'Sora', sans-serif", fontWeight: 600, fontSize: 12, color: T.black }}>{t.name || "call_llm"}</td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{modelName}</td>
+                          <td style={{ padding: "9px 10px" }}>{speed !== "—" ? <span style={pill(speed === "fast" ? T.orange : T.navy)}>{speed}</span> : <span style={{ ...monoSm, color: T.gray400 }}>—</span>}</td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{fmtMs(latencyMs)}</td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{totalTokens > 0 ? totalTokens.toLocaleString() : "—"}</td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{cost}</td>
+                          <td style={{ padding: "9px 10px" }}><span style={{ ...monoSm, color: statusColor(t.status), fontWeight: 600 }}>{t.status || "—"}</span></td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{fmtTime(t.timestamp)}</td>
+                        </tr>
+                        {isExp && (
+                          <tr key={`${t.id}-exp`} style={{ background: "rgba(13,148,136,0.03)" }}>
+                            <td colSpan={8} style={{ padding: "12px 16px" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                                <div>
+                                  <div style={{ ...monoSm, color: T.gray400, marginBottom: 4, textTransform: "uppercase" }}>Prompt</div>
+                                  <pre style={{ ...monoSm, background: T.gray100, borderRadius: 8, padding: "10px 12px", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 180, overflowY: "auto", color: T.black }}>{obs.input || t.input || "—"}</pre>
+                                </div>
+                                <div>
+                                  <div style={{ ...monoSm, color: T.gray400, marginBottom: 4, textTransform: "uppercase" }}>Response</div>
+                                  <pre style={{ ...monoSm, background: T.gray100, borderRadius: 8, padding: "10px 12px", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 180, overflowY: "auto", color: T.black }}>{obs.output || t.output || "—"}</pre>
+                                </div>
+                              </div>
+                              {t.metadata && Object.keys(t.metadata).length > 0 && (
+                                <div style={{ marginTop: 10 }}>
+                                  <div style={{ ...monoSm, color: T.gray400, marginBottom: 4, textTransform: "uppercase" }}>Metadata</div>
+                                  <pre style={{ ...monoSm, background: T.gray100, borderRadius: 8, padding: "8px 12px", color: T.gray400 }}>{JSON.stringify(t.metadata, null, 2)}</pre>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── AgentOps panel ── */}
+      {!loading && platform === "agentops" && (
+        <>
+          {aoError && (
+            <div style={{ ...cardStyle, background: "#faf5ff", border: "1px solid #ddd6fe" }}>
+              <span style={{ ...monoSm, color: "#7C3AED" }}>⚠ {aoError}</span>
+            </div>
+          )}
+          {sessions.length === 0 && !aoError && (
+            <div style={{ ...cardStyle, textAlign: "center", padding: 48 }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>◈</div>
+              <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 15, color: T.black, marginBottom: 6 }}>No AgentOps sessions yet</div>
+              <div style={{ ...monoSm, color: T.gray400 }}>Run any agent — each agent run creates one session. Add AGENTOPS_API_KEY to EC2 .env.</div>
+            </div>
+          )}
+          {sessions.length > 0 && (
+            <div style={cardStyle}>
+              <div style={{ ...monoSm, color: T.gray400, marginBottom: 12 }}>{sessions.length} sessions · Munich time</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${T.gray200}` }}>
+                    {["Session ID", "Provider", "Model", "Speed", "LLM Calls", "Tokens", "Cost", "Status", "Started"].map(h => (
+                      <th key={h} style={{ ...monoSm, color: T.gray400, textAlign: "left", padding: "6px 10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map(s => {
+                    const sid = s.session_id || "—";
+                    const isExp = expanded === sid;
+                    const status = s.end_state || "—";
+                    const cost = s.cost != null ? `$${Number(s.cost).toFixed(4)}` : "—";
+                    const tokens = s.tokens != null ? s.tokens.toLocaleString() : "—";
+                    const llmCalls = s.llm_calls != null ? s.llm_calls : "—";
+                    return (
+                      <>
+                        <tr key={sid} onClick={() => setExpanded(isExp ? null : sid)} style={{ borderBottom: `1px solid ${T.gray100}`, cursor: "pointer", background: isExp ? "rgba(124,58,237,0.04)" : "transparent" }}>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.navy }}>{String(sid).slice(0, 8)}…</td>
+                          <td style={{ padding: "9px 10px" }}>{s.provider ? <span style={pill("#e0f2fe", "#0369a1")}>{s.provider}</span> : <span style={{ ...monoSm, color: T.gray400 }}>—</span>}</td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.model || "—"}</td>
+                          <td style={{ padding: "9px 10px" }}>{s.speed ? <span style={pill(s.speed === "fast" ? "#fff7ed" : "#eff6ff", s.speed === "fast" ? "#c2410c" : "#1d4ed8")}>{s.speed}</span> : <span style={{ ...monoSm, color: T.gray400 }}>—</span>}</td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{llmCalls}</td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{tokens}</td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{cost}</td>
+                          <td style={{ padding: "9px 10px" }}><span style={{ ...monoSm, color: statusColor(status), fontWeight: 600 }}>{status}</span></td>
+                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{fmtTime(s.created_at)}</td>
+                        </tr>
+                        {isExp && (
+                          <tr key={`${sid}-exp`} style={{ background: "rgba(124,58,237,0.03)" }}>
+                            <td colSpan={9} style={{ padding: "12px 16px" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                                {[
+                                  ["Session ID", sid],
+                                  ["Provider", s.provider || "—"],
+                                  ["Model", s.model || "—"],
+                                  ["Speed", s.speed || "—"],
+                                  ["End State", status],
+                                  ["LLM Calls", llmCalls],
+                                  ["Tokens", tokens],
+                                  ["Cost", cost],
+                                  ["Started", s.created_at ? new Date(s.created_at).toLocaleString("de-DE", { timeZone: "Europe/Berlin" }) : "—"],
+                                ].map(([k, v]) => (
+                                  <div key={k} style={{ background: T.gray100, borderRadius: 8, padding: "8px 12px" }}>
+                                    <div style={{ ...monoSm, color: T.gray400, textTransform: "uppercase", marginBottom: 2 }}>{k}</div>
+                                    <div style={{ ...monoSm, color: T.black, fontWeight: 600, wordBreak: "break-all" }}>{String(v)}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              {s.detail_url && (
+                                <a href={s.detail_url} target="_blank" rel="noreferrer" style={{ ...monoSm, color: "#7C3AED", textDecoration: "none" }}>
+                                  ↗ View full session in AgentOps dashboard
+                                </a>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+function SettingsView() {
+  const { user, logout } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  const sectionStyle = { background: "rgba(255,255,255,0.72)", backdropFilter: "blur(14px)", borderRadius: 16, border: "1px solid rgba(255,255,255,0.55)", padding: "24px 28px", marginBottom: 20 };
+  const labelStyle = { fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gray400, marginBottom: 6, display: "block", textTransform: "uppercase", letterSpacing: "0.05em" };
+  const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.gray200}`, fontFamily: "'Sora', sans-serif", fontSize: 13, background: T.gray100, color: T.black, outline: "none", boxSizing: "border-box" };
+  const btnPrimary = { padding: "10px 22px", borderRadius: 10, background: T.orange, border: "none", color: "#fff", fontWeight: 700, fontSize: 12, fontFamily: "'DM Mono', monospace", cursor: "pointer" };
+  const btnDanger = { padding: "6px 14px", borderRadius: 8, background: T.redLight, border: `1px solid ${T.red}`, color: T.red, fontWeight: 700, fontSize: 11, fontFamily: "'DM Mono', monospace", cursor: "pointer" };
+  const msgStyle = (type) => ({ fontSize: 12, fontFamily: "'DM Mono', monospace", color: type === "ok" ? T.green : T.red, marginTop: 8 });
+
+  // ── Change password ──
+  const [cpCurrent, setCpCurrent] = useState("");
+  const [cpNew, setCpNew] = useState("");
+  const [cpConfirm, setCpConfirm] = useState("");
+  const [cpMsg, setCpMsg] = useState(null);
+  const [cpLoading, setCpLoading] = useState(false);
+
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    if (cpNew !== cpConfirm) { setCpMsg({ type: "err", text: "New passwords don't match" }); return; }
+    if (cpNew.length < 8) { setCpMsg({ type: "err", text: "Password must be at least 8 characters" }); return; }
+    setCpLoading(true); setCpMsg(null);
+    try {
+      await changePassword(cpCurrent, cpNew);
+      setCpMsg({ type: "ok", text: "Password changed successfully" });
+      setCpCurrent(""); setCpNew(""); setCpConfirm("");
+    } catch (e) { setCpMsg({ type: "err", text: e.message }); }
+    finally { setCpLoading(false); }
+  }
+
+  // ── Pipeline settings ──
+  const [ps, setPs] = useState({ cv_text: "", job_keywords: [], job_location: "Germany", llm_provider: "anthropic", llm_api_key: "", llm_model_fast: "", llm_model_smart: "", apify_token: "", apify_token_public: "", pipeline_agents: ["agent1","agent2","agent3","agent4","agent5"], schedule_times: [8, 12, 20] });
+  const [psLoading, setPsLoading] = useState(true);
+  const [psMsg, setPsMsg] = useState(null);
+  const [psSaving, setPsSaving] = useState(false);
+  const [kwInput, setKwInput] = useState("");
+
+  useEffect(() => {
+    getUserSettings().then(d => {
+      if (d && Object.keys(d).length) {
+        setPs(prev => ({
+          ...prev,
+          cv_text: d.cv_text || "",
+          job_keywords: d.job_keywords || [],
+          job_location: d.job_location || "Germany",
+          llm_provider: d.llm_provider || "anthropic",
+          llm_model_fast: d.llm_model_fast || "",
+          llm_model_smart: d.llm_model_smart || "",
+          apify_token: d.apify_token || "",
+          apify_token_public: d.apify_token_public || "",
+          pipeline_agents: d.pipeline_agents || ["agent1","agent2","agent3","agent4","agent5"],
+          schedule_times: d.schedule_times || [8, 12, 20],
+        }));
+      }
+      setPsLoading(false);
+    });
+  }, []);
+
+  function addKeyword() {
+    const kw = kwInput.trim();
+    if (!kw || ps.job_keywords.includes(kw)) return;
+    setPs(prev => ({ ...prev, job_keywords: [...prev.job_keywords, kw] }));
+    setKwInput("");
+  }
+
+  async function handleSaveSettings(e) {
+    e.preventDefault();
+    setPsSaving(true); setPsMsg(null);
+    try {
+      const payload = {
+        cv_text: ps.cv_text || null,
+        job_keywords: ps.job_keywords.length ? ps.job_keywords : null,
+        job_location: ps.job_location || null,
+        llm_provider: ps.llm_provider || null,
+        llm_api_key: ps.llm_api_key || null,
+        llm_model_fast: ps.llm_model_fast || null,
+        llm_model_smart: ps.llm_model_smart || null,
+        apify_token: ps.apify_token || null,
+        apify_token_public: ps.apify_token_public || null,
+        pipeline_agents: ps.pipeline_agents.length ? ps.pipeline_agents : null,
+        schedule_times: ps.schedule_times.length ? ps.schedule_times : null,
+      };
+      await updateUserSettings(payload);
+      setPsMsg({ type: "ok", text: "Settings saved" });
+      setPs(prev => ({ ...prev, llm_api_key: "" }));
+    } catch (e) { setPsMsg({ type: "err", text: e.message }); }
+    finally { setPsSaving(false); }
+  }
+
+  // ── User management ──
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [newRole, setNewRole] = useState("user");
+  const [createMsg, setCreateMsg] = useState(null);
+  const [createLoading, setCreateLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    setUsersLoading(true);
+    listUsers().then(d => { setUsers(d.users || []); setUsersLoading(false); }).catch(() => setUsersLoading(false));
+  }, [isAdmin]);
+
+  async function handleCreateUser(e) {
+    e.preventDefault();
+    if (!newEmail || !newPass) { setCreateMsg({ type: "err", text: "Email and password required" }); return; }
+    setCreateLoading(true); setCreateMsg(null);
+    try {
+      const u = await createUser(newEmail, newPass, newRole);
+      setUsers(prev => [...prev, { ...u, created_at: new Date().toISOString() }]);
+      setCreateMsg({ type: "ok", text: `User ${u.email} created` });
+      setNewEmail(""); setNewPass(""); setNewRole("user");
+    } catch (e) { setCreateMsg({ type: "err", text: e.message }); }
+    finally { setCreateLoading(false); }
+  }
+
+  async function handleDeleteUser(uid, email) {
+    if (!window.confirm(`Delete user ${email}?`)) return;
+    try {
+      await deleteUser(uid);
+      setUsers(prev => prev.filter(u => u.id !== uid));
+    } catch (e) { alert(e.message); }
+  }
+
+  const PROVIDER_DEFAULTS = {
+    anthropic: { fast: "claude-haiku-4-5-20251001",       smart: "claude-sonnet-4-6" },
+    openai:    { fast: "gpt-4o-mini",                     smart: "gpt-4o" },
+    nvidia:    { fast: "deepseek-ai/deepseek-v4-flash",   smart: "deepseek-ai/deepseek-v4-flash" },
+    ollama:    { fast: "gemma2:9b",                       smart: "gemma2:9b" },
+  };
+
+  return (
+    <div style={{ maxWidth: 660 }}>
+      {/* Account */}
+      <div style={sectionStyle}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif", marginBottom: 18 }}>Account</div>
+        <div style={{ marginBottom: 16 }}>
+          <span style={labelStyle}>Email</span>
+          <div style={{ ...inputStyle, color: T.gray600 }}>{user?.email}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+          <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", background: T.orangeXLight, color: T.orange, padding: "3px 10px", borderRadius: 99, fontWeight: 700 }}>{user?.role}</span>
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.gray600, fontFamily: "'Sora', sans-serif", marginBottom: 14 }}>Change Password</div>
+        <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div><label style={labelStyle}>Current Password</label><input type="password" style={inputStyle} value={cpCurrent} onChange={e => setCpCurrent(e.target.value)} placeholder="Current password" /></div>
+          <div><label style={labelStyle}>New Password</label><input type="password" style={inputStyle} value={cpNew} onChange={e => setCpNew(e.target.value)} placeholder="Min. 8 characters" /></div>
+          <div><label style={labelStyle}>Confirm New Password</label><input type="password" style={inputStyle} value={cpConfirm} onChange={e => setCpConfirm(e.target.value)} placeholder="Repeat new password" /></div>
+          {cpMsg && <div style={msgStyle(cpMsg.type)}>{cpMsg.text}</div>}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4 }}>
+            <button type="submit" style={btnPrimary} disabled={cpLoading}>{cpLoading ? "Saving…" : "Update Password"}</button>
+            <button type="button" onClick={logout} style={{ padding: "10px 22px", borderRadius: 10, background: T.redLight, border: `1px solid ${T.red}`, color: T.red, fontWeight: 700, fontSize: 12, fontFamily: "'DM Mono', monospace", cursor: "pointer" }}>Sign Out</button>
+          </div>
+        </form>
+      </div>
+
+      {/* Pipeline Settings */}
+      <div style={sectionStyle}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif", marginBottom: 4 }}>Pipeline Settings</div>
+        <div style={{ fontSize: 12, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 18 }}>Your CV, LLM provider, API keys, and job search preferences</div>
+        {psLoading ? (
+          <div style={{ fontSize: 12, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>Loading…</div>
+        ) : (
+          <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            {/* CV */}
+            <div>
+              <label style={labelStyle}>CV / Resume</label>
+              <textarea
+                style={{ ...inputStyle, minHeight: 140, resize: "vertical", lineHeight: 1.5 }}
+                value={ps.cv_text}
+                onChange={e => setPs(prev => ({ ...prev, cv_text: e.target.value }))}
+                placeholder="Paste your CV text here. Agents will use this for scoring and tailoring."
+              />
+            </div>
+
+            {/* Job search */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Job Location</label>
+                <input style={inputStyle} value={ps.job_location} onChange={e => setPs(prev => ({ ...prev, job_location: e.target.value }))} placeholder="e.g. Germany" />
+              </div>
+              <div>
+                <label style={labelStyle}>LLM Provider</label>
+                <select style={{ ...inputStyle, cursor: "pointer" }} value={ps.llm_provider} onChange={e => setPs(prev => ({ ...prev, llm_provider: e.target.value }))}>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="openai">OpenAI (GPT)</option>
+                  <option value="nvidia">NVIDIA NIM (DeepSeek-V4-Flash)</option>
+                  <option value="ollama">Ollama (local)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Keywords */}
+            <div>
+              <label style={labelStyle}>Job Keywords</label>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input
+                  style={{ ...inputStyle, flex: 1 }}
+                  value={kwInput}
+                  onChange={e => setKwInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addKeyword(); } }}
+                  placeholder="Add keyword and press Enter"
+                />
+                <button type="button" onClick={addKeyword} style={{ ...btnPrimary, padding: "10px 16px", whiteSpace: "nowrap" }}>Add</button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {ps.job_keywords.map(kw => (
+                  <span key={kw} style={{ background: T.orangeXLight, color: T.orange, fontSize: 11, fontFamily: "'DM Mono', monospace", padding: "3px 10px", borderRadius: 99, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                    {kw}
+                    <span style={{ cursor: "pointer", fontSize: 13, lineHeight: 1 }} onClick={() => setPs(prev => ({ ...prev, job_keywords: prev.job_keywords.filter(k => k !== kw) }))}>×</span>
+                  </span>
+                ))}
+                {ps.job_keywords.length === 0 && <span style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>No keywords — will use defaults</span>}
+              </div>
+            </div>
+
+            {/* LLM API Key */}
+            <div>
+              <label style={labelStyle}>LLM API Key <span style={{ color: T.gray400 }}>(leave blank to keep existing)</span></label>
+              <input type="password" style={inputStyle} value={ps.llm_api_key} onChange={e => setPs(prev => ({ ...prev, llm_api_key: e.target.value }))} placeholder={ps.llm_provider === "ollama" ? "Not needed for Ollama" : ps.llm_provider === "nvidia" ? "nvapi-…" : "sk-…"} />
+            </div>
+
+            {/* Model overrides */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Fast Model <span style={{ color: T.gray400 }}>(Agent 2)</span></label>
+                <input style={inputStyle} value={ps.llm_model_fast} onChange={e => setPs(prev => ({ ...prev, llm_model_fast: e.target.value }))} placeholder={PROVIDER_DEFAULTS[ps.llm_provider]?.fast || "default"} />
+              </div>
+              <div>
+                <label style={labelStyle}>Smart Model <span style={{ color: T.gray400 }}>(Agents 3-5)</span></label>
+                <input style={inputStyle} value={ps.llm_model_smart} onChange={e => setPs(prev => ({ ...prev, llm_model_smart: e.target.value }))} placeholder={PROVIDER_DEFAULTS[ps.llm_provider]?.smart || "default"} />
+              </div>
+            </div>
+
+            {/* Apify tokens */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Apify Token <span style={{ color: T.gray400 }}>(Indeed)</span></label>
+                <input type="password" style={inputStyle} value={ps.apify_token} onChange={e => setPs(prev => ({ ...prev, apify_token: e.target.value }))} placeholder="apify_api_…" />
+              </div>
+              <div>
+                <label style={labelStyle}>Apify Token Public <span style={{ color: T.gray400 }}>(LinkedIn)</span></label>
+                <input type="password" style={inputStyle} value={ps.apify_token_public} onChange={e => setPs(prev => ({ ...prev, apify_token_public: e.target.value }))} placeholder="apify_api_…" />
+              </div>
+            </div>
+
+            {/* Pipeline agent toggles */}
+            <div>
+              <label style={labelStyle}>Pipeline Agents</label>
+              <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 10 }}>Choose which agents run automatically in your daily pipeline</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[
+                  { id: "agent1", label: "Agent 1 — Job Scraper",     desc: "Scrapes Arbeitsagentur, LinkedIn, Indeed" },
+                  { id: "agent2", label: "Agent 2 — CV Matcher",      desc: "Scores jobs against your CV (required for gaps)" },
+                  { id: "agent3", label: "Agent 3 — Gap Analyst",     desc: "Identifies skill gaps across matched jobs" },
+                  { id: "agent4", label: "Agent 4 — Interview Coach", desc: "Generates prep questions when you reach Interview stage" },
+                  { id: "agent5", label: "Agent 5 — Reporter",        desc: "Weekly digest email (runs Sundays)" },
+                ].map(a => {
+                  const on = ps.pipeline_agents.includes(a.id);
+                  return (
+                    <div key={a.id} onClick={() => setPs(prev => ({ ...prev, pipeline_agents: on ? prev.pipeline_agents.filter(x => x !== a.id) : [...prev.pipeline_agents, a.id] }))}
+                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, border: `1px solid ${on ? T.orange : T.gray200}`, background: on ? T.orangeXLight : T.gray100, cursor: "pointer", userSelect: "none" }}>
+                      <div style={{ width: 36, height: 20, borderRadius: 99, background: on ? T.orange : T.gray300, position: "relative", flexShrink: 0, transition: "background 0.15s" }}>
+                        <div style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.15s" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: T.black, fontFamily: "'DM Mono', monospace" }}>{a.label}</div>
+                        <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'Sora', sans-serif", marginTop: 1 }}>{a.desc}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Schedule times */}
+            <div>
+              <label style={labelStyle}>Pipeline Schedule <span style={{ color: T.gray400 }}>(Munich time)</span></label>
+              <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 10 }}>Select which Munich time hours Agent 1 pipeline triggers (Mon–Fri). Click to toggle.</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {Array.from({ length: 24 }, (_, h) => {
+                  const on = ps.schedule_times.includes(h);
+                  const label = `${String(h).padStart(2, "0")}:00`;
+                  return (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => setPs(prev => ({
+                        ...prev,
+                        schedule_times: on
+                          ? prev.schedule_times.filter(t => t !== h)
+                          : [...prev.schedule_times, h].sort((a, b) => a - b),
+                      }))}
+                      style={{
+                        padding: "5px 10px", borderRadius: 8, fontSize: 11,
+                        fontFamily: "'DM Mono', monospace", fontWeight: on ? 700 : 400, cursor: "pointer",
+                        border: `1px solid ${on ? T.orange : T.gray200}`,
+                        background: on ? T.orange : T.gray100,
+                        color: on ? "#fff" : T.gray600,
+                        transition: "all 0.12s",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {ps.schedule_times.length === 0 && (
+                <div style={{ fontSize: 11, color: T.red, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>No hours selected — pipeline won't trigger automatically</div>
+              )}
+              <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>
+                Selected: {ps.schedule_times.length === 0 ? "none" : ps.schedule_times.map(h => `${String(h).padStart(2,"0")}:00`).join(", ")} Munich time
+              </div>
+            </div>
+
+            {psMsg && <div style={msgStyle(psMsg.type)}>{psMsg.text}</div>}
+            <div>
+              <button type="submit" style={btnPrimary} disabled={psSaving}>{psSaving ? "Saving…" : "Save Settings"}</button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* User Management — admin only */}
+      {isAdmin && (
+        <div style={sectionStyle}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.black, fontFamily: "'Sora', sans-serif", marginBottom: 18 }}>User Management</div>
+          <div style={{ marginBottom: 24 }}>
+            {usersLoading ? (
+              <div style={{ fontSize: 12, color: T.gray400, fontFamily: "'DM Mono', monospace" }}>Loading…</div>
+            ) : users.length === 0 ? (
+              <EmptyState message="No users found" />
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "'DM Mono', monospace" }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${T.gray200}` }}>
+                    {["Email", "Role", "Created", ""].map(h => (
+                      <th key={h} style={{ textAlign: "left", padding: "6px 10px", color: T.gray400, fontWeight: 500, fontSize: 11 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id} style={{ borderBottom: `1px solid ${T.gray100}` }}>
+                      <td style={{ padding: "9px 10px", color: T.black }}>{u.email}</td>
+                      <td style={{ padding: "9px 10px" }}>
+                        <span style={{ background: u.role === "admin" ? T.orangeXLight : T.gray100, color: u.role === "admin" ? T.orange : T.gray600, padding: "2px 8px", borderRadius: 99, fontWeight: 700, fontSize: 10 }}>{u.role}</span>
+                      </td>
+                      <td style={{ padding: "9px 10px", color: T.gray400 }}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
+                      <td style={{ padding: "9px 10px" }}>
+                        {u.id !== user?.id && (
+                          <button style={btnDanger} onClick={() => handleDeleteUser(u.id, u.email)}>Delete</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.gray600, fontFamily: "'Sora', sans-serif", marginBottom: 14 }}>Create New User</div>
+          <form onSubmit={handleCreateUser} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div><label style={labelStyle}>Email</label><input type="email" style={inputStyle} value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="user@example.com" /></div>
+            <div><label style={labelStyle}>Password</label><input type="password" style={inputStyle} value={newPass} onChange={e => setNewPass(e.target.value)} placeholder="Min. 8 characters" /></div>
+            <div>
+              <label style={labelStyle}>Role</label>
+              <select style={{ ...inputStyle, cursor: "pointer" }} value={newRole} onChange={e => setNewRole(e.target.value)}>
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            {createMsg && <div style={msgStyle(createMsg.type)}>{createMsg.text}</div>}
+            <div><button type="submit" style={btnPrimary} disabled={createLoading}>{createLoading ? "Creating…" : "Create User"}</button></div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const [active, setActive] = useState(() => localStorage.getItem("activeTab") || "overview");
   const [collapsed, setCollapsed] = useState(false);
   const [llmMode, setLlmModeState] = useState("online");
@@ -3122,7 +3791,9 @@ export default function App() {
     if (active === "analytics") return <Analytics />;
     if (active === "automation") return <><AgentRunner /><AutomationLogs /></>;
     if (active === "scraper") return <ScraperStats />;
+    if (active === "traces") return <TracesView />;
     if (active === "profile") return <ProfileView />;
+    if (active === "settings") return <SettingsView />;
   };
 
   return (
@@ -3207,4 +3878,19 @@ export default function App() {
     </>
     </DataCtx.Provider>
   );
+}
+
+function AppWithAuth() {
+  const { token, loading, logout } = useAuth();
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: "#EDEAE4", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Sora', sans-serif", color: "#9A9A9A", fontSize: 13 }}>
+      Loading…
+    </div>
+  );
+  if (!token) return <LoginPage />;
+  return <App onLogout={logout} />;
+}
+
+export default function Root() {
+  return <AuthProvider><AppWithAuth /></AuthProvider>;
 }

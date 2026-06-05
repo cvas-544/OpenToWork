@@ -28,8 +28,9 @@ def _elapsed(t0: float) -> str:
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")          # private account — Indeed actor
-APIFY_TOKEN_PUBLIC = os.environ.get("APIFY_TOKEN_PUBLIC", "")  # public account — LinkedIn + other public actors
+# Module-level tokens as fallback for legacy / direct script runs
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
+APIFY_TOKEN_PUBLIC = os.environ.get("APIFY_TOKEN_PUBLIC", "")
 ARBEITSAGENTUR_KEY = os.environ.get("ARBEITSAGENTUR_API_KEY", "jobboerse-jobsuche")
 
 ARBEITSAGENTUR_PROFESSION = "Softwareentwickler/in"  # broad profession — fetches all SW dev jobs
@@ -68,6 +69,34 @@ LINKEDIN_BASE_PARAMS = {
 
 def get_db():
     return psycopg2.connect(DATABASE_URL)
+
+
+def _load_scraper_settings(user_id: int) -> dict:
+    """Load per-user Apify tokens, job keywords, and location from user_settings."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT apify_token, apify_token_public, job_keywords, job_location FROM user_settings WHERE user_id = %s",
+            (user_id,)
+        )
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if row:
+            return {
+                "apify_token": row[0] or APIFY_TOKEN,
+                "apify_token_public": row[1] or APIFY_TOKEN_PUBLIC,
+                "job_keywords": row[2] or ["AI Engineer", "ML Engineer", "Agentic AI"],
+                "job_location": row[3] or "Germany",
+            }
+    except Exception as e:
+        print(f"[Agent 1] Could not load scraper settings for user {user_id}: {e}")
+    return {
+        "apify_token": APIFY_TOKEN,
+        "apify_token_public": APIFY_TOKEN_PUBLIC,
+        "job_keywords": ["AI Engineer", "ML Engineer", "Agentic AI"],
+        "job_location": "Germany",
+    }
 
 
 def make_external_id(title: str, company: str, url: str) -> str:
@@ -132,8 +161,9 @@ def scrape_arbeitsagentur(keyword: str) -> list[dict]:
         return []
 
 
-def scrape_apify_linkedin(keyword: str) -> list[dict]:
-    if not APIFY_TOKEN_PUBLIC:
+def scrape_apify_linkedin(keyword: str, apify_token_public: str = "") -> list[dict]:
+    token = apify_token_public or APIFY_TOKEN_PUBLIC
+    if not token:
         print(f"[{_ts()}][LinkedIn] No APIFY_TOKEN_PUBLIC — skipping")
         return []
     t0 = time.time()
@@ -143,7 +173,7 @@ def scrape_apify_linkedin(keyword: str) -> list[dict]:
     )
     print(f"[{_ts()}][LinkedIn] '{keyword}': starting Apify actor run...")
     try:
-        client = ApifyClient(APIFY_TOKEN_PUBLIC)
+        client = ApifyClient(token)
         run = client.actor("curious_coder/linkedin-jobs-scraper").call(
             run_input={"urls": [search_url], "count": 15},
             timeout_secs=300,
@@ -177,25 +207,28 @@ def scrape_apify_linkedin(keyword: str) -> list[dict]:
         return []
 
 
-def deduplicate_and_save(jobs: list[dict]) -> list[dict]:
-    """Insert new jobs into DB, return only those that didn't already exist."""
+def deduplicate_and_save(jobs: list[dict], user_id: int = 1) -> list[dict]:
+    """Insert new jobs into DB for the given user, return only those that didn't already exist."""
     conn = get_db()
     cur = conn.cursor()
     new_jobs = []
     for job in jobs:
         ext_id = make_external_id(job["title"], job["company"], job["url"])
-        cur.execute("SELECT id FROM job_listings WHERE external_id = %s", (ext_id,))
+        cur.execute(
+            "SELECT id FROM job_listings WHERE external_id = %s AND user_id = %s",
+            (ext_id, user_id)
+        )
         if cur.fetchone():
-            continue  # already seen
+            continue  # already seen for this user
         cur.execute(
             """
             INSERT INTO job_listings
-              (external_id, title, company, location, remote, url, description, source, date_posted)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (external_id, title, company, location, remote, url, description, source, date_posted, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (ext_id, job["title"], job["company"], job["location"],
-             job["remote"], job["url"], job["description"], job["source"], job["date_posted"]),
+             job["remote"], job["url"], job["description"], job["source"], job["date_posted"], user_id),
         )
         job["db_id"] = cur.fetchone()[0]
         new_jobs.append(job)
@@ -241,13 +274,15 @@ def fetch_indeed_description(url: str) -> str:
         return ""
 
 
-def scrape_apify_indeed() -> list[dict]:
-    if not APIFY_TOKEN:
+def scrape_apify_indeed(apify_token: str = "", keywords: list = None) -> list[dict]:
+    token = apify_token or APIFY_TOKEN
+    if not token:
         print(f"[{_ts()}][Indeed] No APIFY_TOKEN — skipping")
         return []
-    client = ApifyClient(APIFY_TOKEN)
+    client = ApifyClient(token)
+    keyword_list = [(kw, max_r) for kw, max_r in INDEED_KEYWORDS] if keywords is None else [(kw, 2) for kw in keywords]
     jobs = []
-    for keyword, max_results in INDEED_KEYWORDS:
+    for keyword, max_results in keyword_list:
         t0 = time.time()
         print(f"[{_ts()}][Indeed] '{keyword}': starting Apify actor run...")
         try:
@@ -282,9 +317,15 @@ def scrape_apify_indeed() -> list[dict]:
     return jobs
 
 
-def run() -> list[dict]:
+def run(user_id: int = 1) -> list[dict]:
     t_start = time.time()
-    print(f"[{_ts()}][Agent 1] ===== START =====")
+    print(f"[{_ts()}][Agent 1] ===== START (user {user_id}) =====")
+
+    settings = _load_scraper_settings(user_id)
+    apify_token = settings["apify_token"]
+    apify_token_public = settings["apify_token_public"]
+    job_keywords = settings["job_keywords"]
+    print(f"[{_ts()}][Agent 1] Keywords: {job_keywords}, location: {settings['job_location']}")
 
     all_jobs = []
 
@@ -298,24 +339,25 @@ def run() -> list[dict]:
 
     # --- LinkedIn ---
     t_section = time.time()
-    print(f"[{_ts()}][Agent 1] -- LinkedIn ({len(LINKEDIN_KEYWORDS)} keywords) --")
+    linkedin_keywords = job_keywords or LINKEDIN_KEYWORDS
+    print(f"[{_ts()}][Agent 1] -- LinkedIn ({len(linkedin_keywords)} keywords) --")
     linkedin_jobs = []
-    for keyword in LINKEDIN_KEYWORDS:
-        linkedin_jobs += scrape_apify_linkedin(keyword)
+    for keyword in linkedin_keywords:
+        linkedin_jobs += scrape_apify_linkedin(keyword, apify_token_public)
     all_jobs += linkedin_jobs
     print(f"[{_ts()}][Agent 1] LinkedIn done — {_elapsed(t_section)}, {len(linkedin_jobs)} jobs, {len(all_jobs)} total")
 
     # --- Indeed ---
     t_section = time.time()
-    print(f"[{_ts()}][Agent 1] -- Indeed ({len(INDEED_KEYWORDS)} keywords) --")
-    indeed_jobs = scrape_apify_indeed()
+    print(f"[{_ts()}][Agent 1] -- Indeed ({len(job_keywords)} keywords) --")
+    indeed_jobs = scrape_apify_indeed(apify_token, keywords=job_keywords if job_keywords != ["AI Engineer", "ML Engineer", "Agentic AI"] else None)
     all_jobs += indeed_jobs
     print(f"[{_ts()}][Agent 1] Indeed done — {_elapsed(t_section)}, {len(indeed_jobs)} jobs, {len(all_jobs)} total")
 
     # --- Dedup + Save ---
     t_section = time.time()
-    print(f"[{_ts()}][Agent 1] -- Deduplicating and saving to DB --")
-    new_jobs = deduplicate_and_save(all_jobs)
+    print(f"[{_ts()}][Agent 1] -- Deduplicating and saving to DB (user {user_id}) --")
+    new_jobs = deduplicate_and_save(all_jobs, user_id)
     print(f"[{_ts()}][Agent 1] DB save done — {_elapsed(t_section)}")
 
     print(f"[{_ts()}][Agent 1] ===== DONE — {len(all_jobs)} scraped, {len(new_jobs)} new, total elapsed: {_elapsed(t_start)} =====")

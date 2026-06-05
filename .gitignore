@@ -35,4 +35,14 @@ Thumbs.db
 
 # n8n local data (if running locally)
 n8n/.n8n/
+# n8n workflows contain hardcoded JWT tokens — keep out of git
+n8n/workflows/
 reports/weekly/*.html
+.vercel
+
+# Local dev config
+dashboard/.env.local
+.mcp.json
+
+# Data folder (cv.txt, PDFs, etc.)
+data/

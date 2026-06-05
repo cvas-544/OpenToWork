@@ -5,10 +5,10 @@
 
 set -e
 
-PROJECT_DIR="/Users/vasuchukka/Desktop/desktop/AI/OpenToWork"
+PROJECT_DIR="/Users/vasuchukka/Desktop/Desktop/desktop/AI/OpenToWork"
 PEM="$HOME/FinsenseKey.pem"
-RDS_HOST="finsense-db.cric6akgujm3.eu-north-1.rds.amazonaws.com"
-EC2_IP="16.170.177.86"
+RDS_HOST="finsense-db.c5scmqi2ado9.eu-north-1.rds.amazonaws.com"
+EC2_IP="51.20.75.205"
 DB_URL="postgresql://finsenseAdmin:finsense%23RDS@localhost:15432/opentowork"
 
 echo "=== OpenToWork Local Dev ==="

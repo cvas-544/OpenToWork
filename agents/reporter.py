@@ -1,9 +1,7 @@
 """
 Agent 5 — Reporter
 Trigger: Every Sunday via n8n schedule (weekly digest)
-Model: claude-sonnet-4-6 for synthesis
-Saves weekly HTML report to reports/weekly/ folder
-Logs report metadata to report_log table
+Output: weekly HTML report saved to reports/weekly/ + logged to report_log table
 """
 
 import os
@@ -17,29 +15,31 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 REPORTS_DIR = Path(__file__).parent.parent / "reports" / "weekly"
 
 
-def load_weeks_data() -> dict:
+def load_weeks_data(user_id: int) -> dict:
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
-    # Current week: Monday to today
     today = date.today()
     week_start = today - timedelta(days=today.weekday())
 
-    # Total jobs scraped this week
-    cur.execute("SELECT COUNT(*) FROM job_listings WHERE DATE(scraped_at) >= %s", (week_start,))
+    cur.execute(
+        "SELECT COUNT(*) FROM job_listings WHERE DATE(scraped_at) >= %s AND user_id = %s",
+        (week_start, user_id)
+    )
     total_found = cur.fetchone()[0]
 
-    # Total jobs scored this week
-    cur.execute("SELECT COUNT(*) FROM job_listings WHERE DATE(scraped_at) >= %s AND score IS NOT NULL", (week_start,))
+    cur.execute(
+        "SELECT COUNT(*) FROM job_listings WHERE DATE(scraped_at) >= %s AND score IS NOT NULL AND user_id = %s",
+        (week_start, user_id)
+    )
     total_scored = cur.fetchone()[0]
 
-    # Top 10 matches this week (score >= 60)
     cur.execute(
         """SELECT id, title, company, location, score, matched_skills, missing_skills, url
            FROM job_listings
-           WHERE DATE(scraped_at) >= %s AND score >= 60
+           WHERE DATE(scraped_at) >= %s AND score >= 60 AND user_id = %s
            ORDER BY score DESC LIMIT 10""",
-        (week_start,),
+        (week_start, user_id),
     )
     top_jobs = [
         {"id": r[0], "title": r[1], "company": r[2], "location": r[3],
@@ -47,38 +47,35 @@ def load_weeks_data() -> dict:
         for r in cur.fetchall()
     ]
 
-    # Applications moved to interview this week
     cur.execute(
         """SELECT COUNT(*) FROM applications
-           WHERE status = 'interview' AND DATE(last_updated) >= %s""",
-        (week_start,),
+           WHERE status = 'interview' AND DATE(last_updated) >= %s AND user_id = %s""",
+        (week_start, user_id),
     )
     interviews_this_week = cur.fetchone()[0]
 
-    # Applications submitted this week
     cur.execute(
         """SELECT COUNT(*) FROM applications
-           WHERE status = 'applied' AND DATE(applied_at) >= %s""",
-        (week_start,),
+           WHERE status = 'applied' AND DATE(applied_at) >= %s AND user_id = %s""",
+        (week_start, user_id),
     )
     applied_this_week = cur.fetchone()[0]
 
-    # Top skill gaps this week
     cur.execute(
-        """SELECT skill, frequency, closure_path
+        """SELECT skill, frequency, project_mapping
            FROM skill_gaps
-           WHERE week_start = DATE_TRUNC('week', CURRENT_DATE)
-           ORDER BY frequency DESC LIMIT 5"""
+           WHERE user_id = %s
+           ORDER BY frequency DESC LIMIT 5""",
+        (user_id,)
     )
     gaps = [{"skill": r[0], "frequency": r[1], "closure_path": r[2]} for r in cur.fetchall()]
 
-    # Interview prep generated this week
     cur.execute(
         """SELECT ip.questions FROM interview_prep ip
            JOIN job_listings jl ON ip.job_id = jl.id
-           WHERE DATE(ip.generated_at) >= %s AND jl.score >= 80
+           WHERE DATE(ip.generated_at) >= %s AND jl.score >= 80 AND ip.user_id = %s
            ORDER BY jl.score DESC LIMIT 1""",
-        (week_start,),
+        (week_start, user_id),
     )
     prep_row = cur.fetchone()
     top_prep_q = None
@@ -101,7 +98,7 @@ def load_weeks_data() -> dict:
     }
 
 
-def synthesize_email(data: dict) -> str:
+def synthesize_email(data: dict, user_id: int) -> str:
     top5 = data["top_jobs"][:5]
     jobs_text = "\n".join(
         f"- [{j['score']}] {j['title']} @ {j['company']} ({j['location']}) | Matched: {', '.join(j['matched_skills'][:3])} | Missing: {', '.join(j['missing_skills'][:2])}"
@@ -112,7 +109,7 @@ def synthesize_email(data: dict) -> str:
         for g in data["gaps"][:3]
     )
 
-    prompt = f"""Generate a concise weekly job hunt digest email for Vasu Chukka, a senior Python/AI engineer in Munich.
+    prompt = f"""Generate a concise weekly job hunt digest email for a senior Python/AI engineer job hunting in Germany.
 
 Week: {data['week_start']} — {data['week_end']}
 
@@ -140,24 +137,23 @@ Write the email body in clean HTML. Include:
 
 Tone: professional, direct, motivating. No filler."""
 
-    return call_llm(prompt, model="claude-sonnet-4-6", max_tokens=3000)
+    return call_llm(prompt, max_tokens=3000, user_id=user_id, speed="smart")
 
 
 def save_report_file(filename: str, html_body: str) -> str:
-    """Save HTML report to reports/weekly/ and return the file path."""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     path = REPORTS_DIR / filename
     path.write_text(html_body, encoding="utf-8")
     return str(path)
 
 
-def log_report(data: dict, email_sent: bool, summary: str):
+def log_report(data: dict, email_sent: bool, summary: str, user_id: int):
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO report_log (report_date, jobs_found, jobs_scored, top_matches, email_sent, email_sent_at, summary_text)
-        VALUES (CURRENT_DATE, %s, %s, %s, %s, %s, %s)
+        INSERT INTO report_log (report_date, jobs_found, jobs_scored, top_matches, email_sent, email_sent_at, summary_text, user_id)
+        VALUES (CURRENT_DATE, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (report_date) DO UPDATE SET
             jobs_found = EXCLUDED.jobs_found,
             jobs_scored = EXCLUDED.jobs_scored,
@@ -172,6 +168,7 @@ def log_report(data: dict, email_sent: bool, summary: str):
             email_sent,
             datetime.now() if email_sent else None,
             summary[:500],
+            user_id,
         ),
     )
     conn.commit()
@@ -179,16 +176,16 @@ def log_report(data: dict, email_sent: bool, summary: str):
     conn.close()
 
 
-def run():
-    print("[Agent 5] Compiling weekly report")
-    data = load_weeks_data()
-    html_body = synthesize_email(data)
+def run(user_id: int = 1):
+    print(f"[Agent 5] Compiling weekly report for user {user_id}")
+    data = load_weeks_data(user_id)
+    html_body = synthesize_email(data, user_id)
 
     top_count = len([j for j in data["top_jobs"] if j["score"] >= 80])
-    filename = f"week-{date.today().strftime('%Y-%m-%d')}.html"
+    filename = f"week-{date.today().strftime('%Y-%m-%d')}-user{user_id}.html"
     saved_path = save_report_file(filename, html_body)
 
-    log_report(data, True, html_body[:500])
+    log_report(data, True, html_body[:500], user_id)
     print(f"[Agent 5] Done. Report saved → {saved_path}")
     return {
         "jobs_found": data["total_found"],
