@@ -57,7 +57,7 @@ Return a JSON array, one object per skill:
 Return ONLY the JSON array, no other text."""
 
     try:
-        text = call_llm(prompt, max_tokens=6000, user_id=user_id, speed="smart")
+        text = call_llm(prompt, max_tokens=6000, user_id=user_id, speed="smart", trace_name="Agent 3 — Gap Analyst")
         return json.loads(text)
     except (json.JSONDecodeError, Exception) as e:
         print(f"[Agent 3] LLM/parse error: {e}")

@@ -3,7 +3,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LoginPage } from "./components/LoginPage";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication, fetchLLMMode, setLLMMode, updateApplicationStatus, listUsers, createUser, deleteUser, changePassword, getUserSettings, updateUserSettings, getTraces, getAgentOpsSessions } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication, fetchLLMMode, setLLMMode, updateApplicationStatus, listUsers, createUser, deleteUser, changePassword, getUserSettings, updateUserSettings, getTraces, getAgentOpsSessions, fetchAnalysis, runAgent9 } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
@@ -157,7 +157,8 @@ const navItems = [
   { id: "analytics", label: "Analytics", icon: "◉" },
   { id: "automation", label: "Automation Logs", icon: "⟳" },
   { id: "scraper", label: "Scrapper", icon: "⟐" },
-  { id: "traces", label: "Traces", icon: "⟴" },
+  { id: "traces",   label: "Traces",   icon: "⟴" },
+  { id: "analysis", label: "Analysis", icon: "⬡" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -1997,7 +1998,7 @@ const AutomationLogs = () => {
   const fmt = (iso) => {
     if (!iso) return "—";
     const d = new Date(iso);
-    return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
   };
 
   const duration = (start, end) => {
@@ -3079,6 +3080,270 @@ const ManualTracker = () => {
   );
 };
 
+// ─── Analysis ────────────────────────────────────────────────────────────────
+const AnalysisView = () => {
+  const [report, setReport]       = useState(undefined); // undefined=loading, null=empty, obj=data
+  const [running, setRunning]     = useState(false);
+  const [runMsg, setRunMsg]       = useState("");
+  const [scoreThreshold, setScoreThreshold] = useState(50);
+  const [maxJobs, setMaxJobs]     = useState(50);
+
+  const cardStyle  = { background: "rgba(255,255,255,0.72)", backdropFilter: "blur(14px)", borderRadius: 16, border: "1px solid rgba(255,255,255,0.55)", padding: "20px 24px", marginBottom: 16 };
+  const monoSm     = { fontFamily: "'DM Mono', monospace", fontSize: 11 };
+  const btnPrimary = { padding: "10px 22px", borderRadius: 10, background: T.orange, border: "none", color: "#fff", fontWeight: 700, fontSize: 12, fontFamily: "'DM Mono', monospace", cursor: "pointer" };
+
+  useEffect(() => {
+    fetchAnalysis().then(r => setReport(r ?? null));
+  }, []);
+
+  const handleRun = () => {
+    setRunning(true); setRunMsg("");
+    runAgent9(scoreThreshold, maxJobs)
+      .then(() => { setRunMsg(`Analysing up to ${maxJobs} jobs (score ≥ ${scoreThreshold}) — refresh in ~60s`); setTimeout(() => fetchAnalysis().then(r => { setReport(r ?? null); setRunning(false); setRunMsg(""); }), 60000); })
+      .catch(e  => { setRunMsg(`Error: ${e.message}`); setRunning(false); });
+  };
+
+  const trendColor = t => t === "rising" ? T.orange : t === "declining" ? "#ef4444" : T.gray400;
+  const demandColor = d => d === "high" ? "#ef4444" : d === "medium" ? T.orange : T.gray400;
+  const levelColor  = l => l === "strong" ? "#22c55e" : l === "partial" ? T.orange : l === "beginner" ? "#f59e0b" : T.gray400;
+
+  const sectionCard = (title, children) => (
+    <div style={cardStyle}>
+      <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 14, color: T.black, marginBottom: 12 }}>{title}</div>
+      {children}
+    </div>
+  );
+
+  const summaryText = txt => txt ? (
+    <p style={{ fontFamily: "'Sora', sans-serif", fontSize: 13, color: T.gray600, lineHeight: 1.6, marginBottom: 12 }}>{txt}</p>
+  ) : null;
+
+  const findingPills = arr => arr?.length > 0 && (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+      {arr.map((f, i) => <span key={i} style={{ ...monoSm, background: "#fff7ed", border: `1px solid ${T.orange}`, borderRadius: 20, padding: "3px 10px", color: T.orange, fontSize: 11 }}>{f}</span>)}
+    </div>
+  );
+
+  if (report === undefined) return <div style={{ padding: 40, ...monoSm, color: T.gray400 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, letterSpacing: 1, color: T.black }}>Market Analysis</div>
+        {report && <div style={{ ...monoSm, color: T.gray400, marginTop: 2 }}>
+          Last run: {report.jobs_analyzed} jobs · {new Date(report.generated_at).toLocaleString("de-DE", { timeZone: "Europe/Berlin" })}
+        </div>}
+      </div>
+
+      {/* Filter panel */}
+      <div style={{ ...cardStyle, display: "flex", alignItems: "flex-end", gap: 24, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ ...monoSm, color: T.gray400, textTransform: "uppercase", marginBottom: 6 }}>Min Match Score</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <input
+              type="range" min={0} max={100} step={5} value={scoreThreshold}
+              onChange={e => setScoreThreshold(Number(e.target.value))}
+              style={{ width: 140, accentColor: T.orange }}
+            />
+            <span style={{ ...monoSm, color: T.black, fontWeight: 700, minWidth: 32 }}>{scoreThreshold}%</span>
+          </div>
+          <div style={{ ...monoSm, color: T.gray400, marginTop: 4 }}>Only jobs with score ≥ {scoreThreshold} are analysed</div>
+        </div>
+
+        <div>
+          <div style={{ ...monoSm, color: T.gray400, textTransform: "uppercase", marginBottom: 6 }}>Max Jobs to Analyse</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {[10, 25, 50, 100, 150, 200].map(n => (
+              <button key={n} type="button" onClick={() => setMaxJobs(n)} style={{
+                padding: "5px 12px", borderRadius: 8, fontSize: 11,
+                fontFamily: "'DM Mono', monospace", fontWeight: maxJobs === n ? 700 : 400, cursor: "pointer",
+                border: `1px solid ${maxJobs === n ? T.orange : T.gray200}`,
+                background: maxJobs === n ? T.orange : T.gray100,
+                color: maxJobs === n ? "#fff" : T.gray600,
+              }}>{n}</button>
+            ))}
+          </div>
+          <div style={{ ...monoSm, color: T.gray400, marginTop: 4 }}>Top {maxJobs} jobs sorted by score descending</div>
+        </div>
+
+        <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <button onClick={handleRun} disabled={running} style={{ ...btnPrimary, opacity: running ? 0.6 : 1 }}>
+            {running ? "Running…" : "▶ Run Agent 9"}
+          </button>
+          {runMsg && <span style={{ ...monoSm, color: running ? T.gray400 : T.orange }}>{runMsg}</span>}
+        </div>
+      </div>
+
+      {!report && (
+        <div style={{ ...cardStyle, textAlign: "center", padding: 60 }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>⬡</div>
+          <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 16, marginBottom: 8 }}>No market analysis yet</div>
+          <div style={{ ...monoSm, color: T.gray400 }}>Click "Run Agent 9" to generate your first report. Requires scored jobs (score ≥ 50).</div>
+        </div>
+      )}
+
+      {report && (() => {
+        const md  = report.market_direction   || {};
+        const sd  = report.skill_demand       || {};
+        const sc  = report.skill_combinations || {};
+        const mg  = report.market_gap         || {};
+        const ts  = report.tech_shifts        || {};
+        const cd  = report.career_directions  || {};
+        const cdData = Object.entries(cd).map(([k, v]) => ({ direction: k, count: v })).sort((a, b) => b.count - a.count);
+        const sdSkills = (sd.top_skills || []).slice(0, 12);
+
+        return (
+          <>
+            {/* Row 1: Market Direction + Career Directions */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              {sectionCard("📈 Market Direction", <>
+                {summaryText(md.summary)}
+                {md.top_roles?.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ ...monoSm, color: T.gray400, textTransform: "uppercase", marginBottom: 6 }}>Top Roles</div>
+                    {md.top_roles.map((r, i) => <div key={i} style={{ ...monoSm, color: T.black, fontWeight: 600, padding: "3px 0" }}>→ {r}</div>)}
+                  </div>
+                )}
+                {findingPills(md.findings)}
+              </>)}
+
+              {sectionCard("🧭 Career Directions", cdData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={cdData} layout="vertical" margin={{ left: 10, right: 20 }}>
+                    <XAxis type="number" tick={{ fontSize: 10, fontFamily: "'DM Mono', monospace" }} />
+                    <YAxis type="category" dataKey="direction" width={110} tick={{ fontSize: 11, fontFamily: "'DM Mono', monospace" }} />
+                    <Tooltip formatter={v => [`${v} jobs`, "Count"]} contentStyle={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }} />
+                    <Bar dataKey="count" radius={4}>
+                      {cdData.map((_, i) => <Cell key={i} fill={i === 0 ? T.orange : i === 1 ? "#f97316" : T.gray400} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <div style={{ ...monoSm, color: T.gray400 }}>No direction data</div>)}
+            </div>
+
+            {/* Row 2: Skill Demand full-width */}
+            {sectionCard("🔧 Skill Demand", <>
+              {summaryText(sd.summary)}
+              {sdSkills.length > 0 && (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={sdSkills} margin={{ bottom: 30 }}>
+                    <XAxis dataKey="skill" tick={{ fontSize: 10, fontFamily: "'DM Mono', monospace" }} angle={-30} textAnchor="end" interval={0} />
+                    <YAxis tick={{ fontSize: 10, fontFamily: "'DM Mono', monospace" }} />
+                    <Tooltip formatter={(v, _, p) => [`${v} jobs · ${p.payload.trend}`, "Frequency"]} contentStyle={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }} />
+                    <Bar dataKey="frequency" radius={4}>
+                      {sdSkills.map((s, i) => <Cell key={i} fill={trendColor(s.trend)} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+                {[["rising", T.orange], ["stable", T.gray400], ["declining", "#ef4444"]].map(([label, color]) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
+                    <span style={{ ...monoSm, color: T.gray400 }}>{label}</span>
+                  </div>
+                ))}
+              </div>
+            </>)}
+
+            {/* Row 3: Skill Combinations + Tech Shifts */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              {sectionCard("🔗 Skill Combinations", <>
+                {summaryText(sc.summary)}
+                {(sc.patterns || []).map((p, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${T.gray100}` }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {p.combination.map((s, j) => (
+                        <span key={j} style={{ ...monoSm, background: T.gray100, borderRadius: 6, padding: "2px 7px", color: T.black }}>{s}</span>
+                      ))}
+                    </div>
+                    <span style={{ ...monoSm, color: T.gray400, marginLeft: 8, whiteSpace: "nowrap" }}>{p.frequency} jobs</span>
+                  </div>
+                ))}
+              </>)}
+
+              {sectionCard("⚡ Technology Shifts", <>
+                {summaryText(ts.summary)}
+                {(ts.shifts || []).map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, padding: "6px 0", borderBottom: `1px solid ${T.gray100}` }}>
+                    <span style={{ ...monoSm, color: T.orange, fontWeight: 700, minWidth: 18 }}>{i + 1}.</span>
+                    <span style={{ fontFamily: "'Sora', sans-serif", fontSize: 12, color: T.gray600, lineHeight: 1.5 }}>{s}</span>
+                  </div>
+                ))}
+              </>)}
+            </div>
+
+            {/* Row 4: Market Gap full-width */}
+            {sectionCard("🎯 Market vs User Gap", <>
+              {summaryText(mg.summary)}
+              {(mg.gaps || []).length > 0 && (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 8 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${T.gray200}` }}>
+                      {["Skill", "Market Demand", "Your Level"].map(h => (
+                        <th key={h} style={{ ...monoSm, color: T.gray400, textAlign: "left", padding: "6px 12px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mg.gaps.map((g, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${T.gray100}`, background: g.market_demand === "high" && (g.user_level === "none" || g.user_level === "beginner") ? "#fef2f2" : "transparent" }}>
+                        <td style={{ padding: "9px 12px", fontFamily: "'DM Mono', monospace", fontWeight: 600, color: T.black, fontSize: 12 }}>{g.skill}</td>
+                        <td style={{ padding: "9px 12px" }}><span style={{ ...monoSm, color: demandColor(g.market_demand), fontWeight: 700 }}>{g.market_demand}</span></td>
+                        <td style={{ padding: "9px 12px" }}><span style={{ ...monoSm, color: levelColor(g.user_level), fontWeight: 700 }}>{g.user_level}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>)}
+
+            {/* Row 5: Jobs used in this analysis */}
+            {(report.jobs || []).length > 0 && sectionCard(`📋 Jobs Analysed (${report.jobs.length})`, <>
+              <div style={{ ...monoSm, color: T.gray400, marginBottom: 12 }}>All {report.jobs.length} jobs that were sent to the model for this report</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${T.gray200}` }}>
+                    {["Score", "Title", "Company", "Location", "Matched Skills", "Source"].map(h => (
+                      <th key={h} style={{ ...monoSm, color: T.gray400, textAlign: "left", padding: "6px 10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.jobs.map(j => (
+                    <tr key={j.id} style={{ borderBottom: `1px solid ${T.gray100}` }}>
+                      <td style={{ padding: "8px 10px" }}>
+                        <span style={{ ...monoSm, fontWeight: 700, color: j.score >= 80 ? "#22c55e" : j.score >= 60 ? T.orange : T.gray400 }}>{j.score}</span>
+                      </td>
+                      <td style={{ padding: "8px 10px", fontFamily: "'Sora', sans-serif", fontWeight: 600, fontSize: 12, color: T.black, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</td>
+                      <td style={{ padding: "8px 10px", ...monoSm, color: T.gray600 }}>{j.company}</td>
+                      <td style={{ padding: "8px 10px", ...monoSm, color: T.gray400 }}>{j.location || "—"}</td>
+                      <td style={{ padding: "8px 10px", maxWidth: 220 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {(j.matched_skills || []).slice(0, 4).map((s, i) => (
+                            <span key={i} style={{ ...monoSm, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, padding: "1px 6px", color: "#15803d" }}>{s}</span>
+                          ))}
+                          {(j.matched_skills || []).length > 4 && (
+                            <span style={{ ...monoSm, color: T.gray400 }}>+{j.matched_skills.length - 4}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ padding: "8px 10px" }}>
+                        <span style={{ ...monoSm, background: T.gray100, borderRadius: 6, padding: "2px 7px", color: T.gray600, textTransform: "capitalize" }}>{j.source || "—"}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>)}
+          </>
+        );
+      })()}
+    </div>
+  );
+};
+
 // ─── Traces ───────────────────────────────────────────────────────────────────
 const TracesView = () => {
   const [platform, setPlatform] = useState("langfuse"); // "langfuse" | "agentops"
@@ -3221,8 +3486,8 @@ const TracesView = () => {
                     const obs = t.observations?.[0] || {};
                     const isExp = expanded === t.id;
                     const latencyMs = t.latency != null ? t.latency : (obs.latency != null ? obs.latency : null);
-                    const totalTokens = (t.usage?.input || 0) + (t.usage?.output || 0);
-                    const cost = t.usage?.totalCost != null ? `$${t.usage.totalCost.toFixed(4)}` : "—";
+                    const totalTokens = t.totalTokens || 0;
+                    const cost = t.totalCost != null ? `$${Number(t.totalCost).toFixed(4)}` : "—";
                     const modelName = t.metadata?.model || obs.model || "—";
                     const speed = t.metadata?.speed || obs.metadata?.speed || "—";
                     return (
@@ -3391,7 +3656,7 @@ function SettingsView() {
   }
 
   // ── Pipeline settings ──
-  const [ps, setPs] = useState({ cv_text: "", job_keywords: [], job_location: "Germany", llm_provider: "anthropic", llm_api_key: "", llm_model_fast: "", llm_model_smart: "", apify_token: "", apify_token_public: "", pipeline_agents: ["agent1","agent2","agent3","agent4","agent5"], schedule_times: [8, 12, 20] });
+  const [ps, setPs] = useState({ cv_text: "", job_keywords: [], job_location: "Germany", llm_provider: "anthropic", llm_api_key: "", llm_model_fast: "", llm_model_smart: "", apify_token: "", apify_token_public: "", pipeline_agents: ["agent1","agent2","agent3","agent4","agent5"], schedule_times: [8, 12, 20], schedule_days: [1,2,3,4,5] });
   const [psLoading, setPsLoading] = useState(true);
   const [psMsg, setPsMsg] = useState(null);
   const [psSaving, setPsSaving] = useState(false);
@@ -3412,6 +3677,7 @@ function SettingsView() {
           apify_token_public: d.apify_token_public || "",
           pipeline_agents: d.pipeline_agents || ["agent1","agent2","agent3","agent4","agent5"],
           schedule_times: d.schedule_times || [8, 12, 20],
+          schedule_days: d.schedule_days || [1,2,3,4,5],
         }));
       }
       setPsLoading(false);
@@ -3441,6 +3707,7 @@ function SettingsView() {
         apify_token_public: ps.apify_token_public || null,
         pipeline_agents: ps.pipeline_agents.length ? ps.pipeline_agents : null,
         schedule_times: ps.schedule_times.length ? ps.schedule_times : null,
+        schedule_days: ps.schedule_days.length ? ps.schedule_days : null,
       };
       await updateUserSettings(payload);
       setPsMsg({ type: "ok", text: "Settings saved" });
@@ -3636,10 +3903,49 @@ function SettingsView() {
               </div>
             </div>
 
+            {/* Schedule days */}
+            <div>
+              <label style={labelStyle}>Pipeline Days <span style={{ color: T.gray400 }}>(Munich time)</span></label>
+              <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 10 }}>Select which days the pipeline runs.</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[["Mon",1],["Tue",2],["Wed",3],["Thu",4],["Fri",5],["Sat",6],["Sun",7]].map(([label, d]) => {
+                  const on = ps.schedule_days.includes(d);
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setPs(prev => ({
+                        ...prev,
+                        schedule_days: on
+                          ? prev.schedule_days.filter(x => x !== d)
+                          : [...prev.schedule_days, d].sort((a, b) => a - b),
+                      }))}
+                      style={{
+                        padding: "6px 14px", borderRadius: 8, fontSize: 12,
+                        fontFamily: "'DM Mono', monospace", fontWeight: on ? 700 : 400, cursor: "pointer",
+                        border: `1px solid ${on ? T.orange : T.gray200}`,
+                        background: on ? T.orange : T.gray100,
+                        color: on ? "#fff" : T.gray600,
+                        transition: "all 0.12s",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {ps.schedule_days.length === 0 && (
+                <div style={{ fontSize: 11, color: T.red, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>No days selected — pipeline won't trigger automatically</div>
+              )}
+              <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>
+                Selected: {ps.schedule_days.length === 0 ? "none" : ps.schedule_days.map(d => ["","Mon","Tue","Wed","Thu","Fri","Sat","Sun"][d]).join(", ")}
+              </div>
+            </div>
+
             {/* Schedule times */}
             <div>
-              <label style={labelStyle}>Pipeline Schedule <span style={{ color: T.gray400 }}>(Munich time)</span></label>
-              <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 10 }}>Select which Munich time hours Agent 1 pipeline triggers (Mon–Fri). Click to toggle.</div>
+              <label style={labelStyle}>Pipeline Hours <span style={{ color: T.gray400 }}>(Munich time)</span></label>
+              <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginBottom: 10 }}>Select which hours the pipeline triggers on the active days. Click to toggle.</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {Array.from({ length: 24 }, (_, h) => {
                   const on = ps.schedule_times.includes(h);
@@ -3672,7 +3978,7 @@ function SettingsView() {
                 <div style={{ fontSize: 11, color: T.red, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>No hours selected — pipeline won't trigger automatically</div>
               )}
               <div style={{ fontSize: 11, color: T.gray400, fontFamily: "'DM Mono', monospace", marginTop: 6 }}>
-                Selected: {ps.schedule_times.length === 0 ? "none" : ps.schedule_times.map(h => `${String(h).padStart(2,"0")}:00`).join(", ")} Munich time
+                Selected: {ps.schedule_times.length === 0 ? "none" : ps.schedule_times.map(h => `${String(h).padStart(2,"0")}:00`).join(", ")}
               </div>
             </div>
 
@@ -3791,8 +4097,9 @@ function App() {
     if (active === "analytics") return <Analytics />;
     if (active === "automation") return <><AgentRunner /><AutomationLogs /></>;
     if (active === "scraper") return <ScraperStats />;
-    if (active === "traces") return <TracesView />;
-    if (active === "profile") return <ProfileView />;
+    if (active === "traces")   return <TracesView />;
+    if (active === "analysis") return <AnalysisView />;
+    if (active === "profile")  return <ProfileView />;
     if (active === "settings") return <SettingsView />;
   };
 

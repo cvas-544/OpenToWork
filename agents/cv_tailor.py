@@ -110,7 +110,7 @@ CV LaTeX (skills section):
 Return ONLY valid JSON, no explanation:
 {{"skills_to_add": ["skill1", "skill2"], "skills_to_remove": ["every", "skill", "in", "cv"]}}"""
 
-    text = call_llm(prompt, max_tokens=2000, speed="smart")
+    text = call_llm(prompt, max_tokens=2000, speed=\"smart\", trace_name=\"Agent 7 — CV Tailor\")
     start = text.find("{")
     end = text.rfind("}") + 1
     return json.loads(text[start:end])
@@ -157,7 +157,7 @@ JOB DESCRIPTION (excerpt):
 BASE CV LaTeX:
 {cv_tex}"""
 
-    return call_llm(prompt, max_tokens=16000, speed="smart")
+    return call_llm(prompt, max_tokens=16000, speed="smart", trace_name="Agent 7 — CV Tailor")
 
 
 def generate_cover_letter(job: dict) -> str:
@@ -184,7 +184,7 @@ JOB DESCRIPTION (excerpt):
 
 Return ONLY the complete LaTeX document — no explanation, no markdown fences."""
 
-    return call_llm(prompt, max_tokens=2000, speed="smart")
+    return call_llm(prompt, max_tokens=2000, speed=\"smart\", trace_name=\"Agent 7 — CV Tailor\")
 
 
 def copy_assets(output_dir: Path):

@@ -363,6 +363,28 @@ export async function getAgentOpsSessions(limit = 50) {
   }
 }
 
+export async function fetchAnalysis() {
+  try {
+    const res = await fetch(`${API_URL}/data/analysis`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("API error");
+    const data = await res.json();
+    return data.report;
+  } catch (e) {
+    console.warn("[API] fetchAnalysis failed:", e.message);
+    return null;
+  }
+}
+
+export async function runAgent9(scoreThreshold = 50, maxJobs = 50) {
+  const res = await fetch(`${API_URL}/run/agent9`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ score_threshold: scoreThreshold, max_jobs: maxJobs }),
+  });
+  if (!res.ok) throw new Error(`Agent 9 failed: ${res.status}`);
+  return await res.json();
+}
+
 export async function getTraces(limit = 50) {
   try {
     const res = await fetch(`${API_URL}/data/traces?limit=${limit}`, { headers: authHeaders() });

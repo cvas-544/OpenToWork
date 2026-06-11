@@ -41,7 +41,25 @@ if _AGENTOPS_ENABLED:
         print(f"[AgentOps] Init failed: {_ao_err}")
         _AGENTOPS_ENABLED = False
 
+import threading
+_call_usage = threading.local()  # captures prompt_tokens / completion_tokens per call
+
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+
+# ── Model pricing (USD per 1M tokens) ─────────────────────────────────────────
+_PRICING = {
+    "gpt-4o":                  (2.50, 10.00),
+    "gpt-4o-mini":             (0.15,  0.60),
+    "claude-sonnet-4-6":       (3.00, 15.00),
+    "claude-haiku-4-5-20251001": (0.80, 4.00),
+}
+
+def _calc_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float | None:
+    key = next((k for k in _PRICING if k in model), None)
+    if key is None or not prompt_tokens:
+        return None
+    inp, out = _PRICING[key]
+    return round((prompt_tokens * inp + completion_tokens * out) / 1_000_000, 6)
 
 DEFAULT_MODELS = {
     "anthropic": {"fast": "claude-haiku-4-5-20251001",        "smart": "claude-sonnet-4-6"},
@@ -132,6 +150,9 @@ def _call_anthropic(prompt: str, model: str, max_tokens: int, api_key: str) -> s
         model=model, max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
+    if response.usage:
+        _call_usage.prompt_tokens = response.usage.input_tokens
+        _call_usage.completion_tokens = response.usage.output_tokens
     return response.content[0].text
 
 
@@ -155,6 +176,9 @@ def _call_openai(prompt: str, model: str, max_tokens: int, api_key: str, base_ur
             model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
+        if response.usage:
+            _call_usage.prompt_tokens = response.usage.prompt_tokens
+            _call_usage.completion_tokens = response.usage.completion_tokens
         return response.choices[0].message.content
     except ImportError:
         raise RuntimeError("[LLM] openai package not installed. Run: pip install openai")
@@ -175,6 +199,9 @@ def _call_nvidia(prompt: str, model: str, max_tokens: int, api_key: str, speed: 
             temperature=0.6, top_p=0.95,
             extra_body=extra, stream=False,
         )
+        if response.usage:
+            _call_usage.prompt_tokens = response.usage.prompt_tokens
+            _call_usage.completion_tokens = response.usage.completion_tokens
         return response.choices[0].message.content or ""
     except ImportError:
         raise RuntimeError("[LLM] openai package not installed. Run: pip install openai")
@@ -251,7 +278,7 @@ def _ollama_fallback(prompt: str, max_tokens: int, reason: str) -> str:
 # ── Main entry point ───────────────────────────────────────────────────────────
 @observe(name="call_llm", capture_input=True, capture_output=True)
 def call_llm(prompt: str, max_tokens: int = 2000, user_id: int = None,
-             speed: str = "smart", model: str = None) -> str:
+             speed: str = "smart", model: str = None, trace_name: str = None) -> str:
     """
     Call LLM for a given user.
 
@@ -285,12 +312,12 @@ def call_llm(prompt: str, max_tokens: int = 2000, user_id: int = None,
         try:
             if user_id:
                 langfuse_context.update_current_trace(user_id=str(user_id))
-            # Store at TRACE level too — /api/public/traces returns trace.metadata, not observations
             langfuse_context.update_current_trace(
+                name=trace_name or "call_llm",
                 metadata={"model": resolved_model, "provider": provider, "speed": speed, "max_tokens": max_tokens},
             )
-            # Also tag the observation for detail view
             langfuse_context.update_current_observation(
+                name=trace_name or "call_llm",
                 model=resolved_model,
                 metadata={"provider": provider, "speed": speed, "max_tokens": max_tokens},
             )
@@ -371,12 +398,22 @@ def call_llm(prompt: str, max_tokens: int = 2000, user_id: int = None,
                 pass
             try:
                 import psycopg2
+                _pt = getattr(_call_usage, "prompt_tokens", None)
+                _ct = getattr(_call_usage, "completion_tokens", None)
+                _cost = _calc_cost(resolved_model, _pt or 0, _ct or 0)
                 _db = psycopg2.connect(os.environ["DATABASE_URL"])
                 _cur = _db.cursor()
                 _cur.execute(
-                    "INSERT INTO agentops_sessions (session_id, user_id, provider, model, speed, end_state) VALUES (%s,%s,%s,%s,%s,%s)",
-                    (str(getattr(_ao_session, "session_id", "")), user_id, provider, resolved_model, speed, _ao_end_state),
+                    """INSERT INTO agentops_sessions
+                       (session_id, user_id, provider, model, speed, end_state,
+                        prompt_tokens, completion_tokens, cost_usd)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (str(getattr(_ao_session, "session_id", "")), user_id, provider,
+                     resolved_model, speed, _ao_end_state, _pt, _ct, _cost),
                 )
                 _db.commit(); _cur.close(); _db.close()
+                # Reset thread-local for next call
+                _call_usage.prompt_tokens = None
+                _call_usage.completion_tokens = None
             except Exception:
                 pass

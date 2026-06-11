@@ -137,7 +137,7 @@ Write the email body in clean HTML. Include:
 
 Tone: professional, direct, motivating. No filler."""
 
-    return call_llm(prompt, max_tokens=3000, user_id=user_id, speed="smart")
+    return call_llm(prompt, max_tokens=3000, user_id=user_id, speed="smart", trace_name="Agent 5 — Reporter")
 
 
 def save_report_file(filename: str, html_body: str) -> str:

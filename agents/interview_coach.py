@@ -47,7 +47,7 @@ Return ONLY valid JSON with this structure:
 Generate exactly 10 questions (mix of difficulties). Include 3 culture Q&A pairs and 5 questions to ask the interviewer."""
 
     try:
-        text = call_llm(prompt, max_tokens=4000, user_id=user_id, speed="smart")
+        text = call_llm(prompt, max_tokens=4000, user_id=user_id, speed="smart", trace_name="Agent 4 — Interview Coach")
         return json.loads(text)
     except json.JSONDecodeError:
         return {"questions": [], "culture_qa": [], "questions_to_ask": []}

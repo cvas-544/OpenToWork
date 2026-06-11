@@ -123,17 +123,17 @@ def _parse_score(text: str) -> dict:
     try:
         return json.loads(text.strip())
     except json.JSONDecodeError:
-        return {"score": 0, "matched_skills": [], "missing_skills": [], "fit_reason": "Parse error", "red_flags": []}
+        return {"score": None, "matched_skills": [], "missing_skills": [], "fit_reason": "Parse error", "red_flags": []}
 
 
 # ── Real-time scoring (non-OpenAI providers) ───────────────────────────────────
 def score_job(job: dict, cv_text: str, profile_skills: list, user_id: int) -> dict:
     prompt = _build_prompt(job, cv_text, profile_skills)
     try:
-        text = call_llm(prompt, max_tokens=512, user_id=user_id, speed="fast")
+        text = call_llm(prompt, max_tokens=512, user_id=user_id, speed="fast", trace_name="Agent 2 — CV Matcher")
         return _parse_score(text)
     except Exception:
-        return {"score": 0, "matched_skills": [], "missing_skills": [], "fit_reason": "Error", "red_flags": []}
+        return {"score": None, "matched_skills": [], "missing_skills": [], "fit_reason": "Error", "red_flags": []}
 
 
 # ── OpenAI Batch API ───────────────────────────────────────────────────────────
@@ -143,6 +143,7 @@ def _score_jobs_batch(
     profile_skills: list,
     api_key: str,
     model: str = "gpt-4o-mini",
+    user_id: int = None,
 ) -> dict:
     """
     Submit all jobs to OpenAI Batch API in one JSONL file.
@@ -205,6 +206,8 @@ def _score_jobs_batch(
     # ── Parse results ──
     output = client.files.content(batch.output_file_id)
     results = {}
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
     for line in output.text.strip().split("\n"):
         if not line.strip():
             continue
@@ -212,8 +215,31 @@ def _score_jobs_batch(
         db_id   = int(item["custom_id"])
         content = item["response"]["body"]["choices"][0]["message"]["content"]
         results[db_id] = _parse_score(content)
+        usage = item.get("response", {}).get("body", {}).get("usage", {})
+        total_prompt_tokens     += usage.get("prompt_tokens", 0)
+        total_completion_tokens += usage.get("completion_tokens", 0)
 
     print(f"[Agent 2] Batch complete — {len(results)}/{len(jobs)} results parsed")
+
+    # ── Record in agentops_sessions ──
+    try:
+        from agents.llm_client import _calc_cost
+        import uuid
+        cost = _calc_cost(model, total_prompt_tokens, total_completion_tokens)
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        cur  = conn.cursor()
+        cur.execute(
+            """INSERT INTO agentops_sessions
+               (session_id, user_id, provider, model, speed, end_state,
+                prompt_tokens, completion_tokens, cost_usd)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (str(uuid.uuid4()), user_id, "openai", model, "batch", "Success",
+             total_prompt_tokens, total_completion_tokens, cost),
+        )
+        conn.commit(); cur.close(); conn.close()
+        print(f"[Agent 2] AgentOps recorded — {total_prompt_tokens}pt / {total_completion_tokens}ct / ${cost}")
+    except Exception as e:
+        print(f"[Agent 2] AgentOps record failed: {e}")
 
     # Clean up uploaded input file (output file is read-only, managed by OpenAI)
     try:
@@ -236,7 +262,7 @@ def save_score(job_id: int, result: dict):
         WHERE id = %s
         """,
         (
-            result.get("score", 0),
+            result.get("score"),  # None saved as NULL — retried next run
             result.get("matched_skills", []),
             result.get("missing_skills", []),
             result.get("fit_reason", ""),
@@ -289,12 +315,12 @@ def run(user_id: int = 1) -> list[dict]:
         model   = settings["model_fast"] or "gpt-4o-mini"
         print(f"[Agent 2] OpenAI Batch API — {len(jobs)} jobs, model={model}")
 
-        scores = _score_jobs_batch(jobs, cv_text, profile_skills, api_key, model)
+        scores = _score_jobs_batch(jobs, cv_text, profile_skills, api_key, model, user_id=user_id)
 
         for job in jobs:
             result = scores.get(
                 job["db_id"],
-                {"score": 0, "matched_skills": [], "missing_skills": [], "fit_reason": "No batch result", "red_flags": []},
+                {"score": None, "matched_skills": [], "missing_skills": [], "fit_reason": "No batch result", "red_flags": []},
             )
             save_score(job["db_id"], result)
             job.update(result)
@@ -315,7 +341,7 @@ def run(user_id: int = 1) -> list[dict]:
     # ── Report results ──
     scored = []
     for job in jobs:
-        if job.get("score", 0) >= SCORE_THRESHOLD:
+        if (job.get("score") or 0) >= SCORE_THRESHOLD:
             scored.append(job)
             tier = "GREEN" if job["score"] >= 80 else "YELLOW"
             print(f"  [{tier}] {job['score']} — {job['title']} @ {job['company']}")
