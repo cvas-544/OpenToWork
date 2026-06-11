@@ -32,7 +32,7 @@ Intelligence layer = provider-agnostic (Anthropic / OpenAI / NVIDIA NIM / Ollama
 ## Tech Stack
 - Orchestration: EC2 system cron (`/etc/cron.d/opentowork`) — replaced n8n entirely
   - Hourly Mon–Fri: `/run/pipeline/due` — fires only for users whose `schedule_times` matches Munich hour
-  - Sunday 9am UTC: `/run/pipeline/weekly` (Agent 5+6)
+  - Sunday 9am UTC: `/run/pipeline/weekly` (Agents 5+6+9, `newest=True`) — Agent 9 weekly only
   - Scripts: `scripts/run-pipeline.sh` + `scripts/run-weekly.sh` — JWT generated from JWT_SECRET
 - Intelligence: Provider-agnostic via `llm_client.py`
   - `anthropic` — Claude Haiku (fast) + Sonnet (smart)
@@ -42,7 +42,7 @@ Intelligence layer = provider-agnostic (Anthropic / OpenAI / NVIDIA NIM / Ollama
 - Database: PostgreSQL on AWS RDS (opentowork DB + langfuse DB)
 - Dashboard: React + Vite + Tailwind + Recharts — deployed on Vercel
 - Scraping: Arbeitsagentur REST API + Apify LinkedIn (`curious_coder/linkedin-jobs-scraper`) + Apify Indeed (`wannabe/indeed-scraper-de`)
-- Observability: Langfuse v2 self-hosted on EC2 port 3010 (Docker, PostgreSQL on RDS `langfuse` DB) — IN PROGRESS
+- Observability: AgentOps only (sessions + tokens + cost in `agentops_sessions` DB table). Langfuse removed 2026-06-12 — container + images deleted from EC2 (~3GB freed), code stripped from llm_client.py / api.py / dashboard. RDS `langfuse` DB still exists (droppable).
 
 ---
 
@@ -322,6 +322,23 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
   - `requirements.txt`: added `langfuse==2.60.10`, `agentops>=0.3.0`, `httpx>=0.27.0`
   - `.gitignore`: added `n8n/workflows/` (hardcoded JWT), `dashboard/.env.local`, `.mcp.json`, `data/`
 
+- **Phase 8 — Observability fixes + Agent 9 Market Analyst** ✅ (2026-06-09/10):
+  - **Agent 9 — Market Analyst** (`agents/market_analyst.py`): single LLM call → 6-section JSON report → `analysis_reports` table. `newest=True` flag for weekly auto-run (sliding window, newest jobs). Manual run uses top-scored jobs.
+  - **Agent 9 weekly scheduling**: removed from daily pipeline. Added `POST /run/pipeline/weekly` endpoint (Agents 5+6+9 with `newest=True`). `scripts/run-weekly.sh` updated.
+  - **Agent 9 architecture**: | 9 — Market Analyst | Sunday 9am UTC (weekly) | smart model | `newest=True` auto (sliding window) · manual = top-scored |
+  - **Migrations**: 014 (`schedule_days`), 015 (`analysis_reports`), 016 (agent9 pipeline default), 017 (analysis job_ids array), 018 (`agentops_sessions` usage columns: `prompt_tokens`, `completion_tokens`, `cost_usd`)
+  - **Per-agent trace names**: all agents pass `trace_name="Agent N — Name"` to `call_llm` → Langfuse shows agent name per trace
+  - **Thread-local token capture** (`threading.local()`): `_call_usage.prompt_tokens/completion_tokens` captured in `_call_anthropic`/`_call_openai`/`_call_nvidia`, read in `call_llm` finally block
+  - **`_calc_cost()`** in `llm_client.py`: pricing dict for gpt-4o, gpt-4o-mini, claude-sonnet-4-6, claude-haiku — calculates USD cost per call
+  - **AgentOps tokens/cost**: stored in `agentops_sessions` DB columns (not from external API). Displayed in dashboard AgentOps tab.
+  - **Agent 2 Batch AgentOps**: `_score_jobs_batch()` sums `promptTokens`/`completionTokens` from each output line's `usage` field → inserts one `agentops_sessions` row per batch run with `speed="batch"`. `user_id` passed through correctly.
+  - **`score=None` fix**: `_parse_score` and `score_job` fallbacks now return `score: None` (not 0) → DB saves NULL → Agent 2 retries failed jobs next run
+  - **Background threading**: `/run/agent1`, `/run/agent2`, `/run/agent3` now return immediately, run in daemon thread — prevents browser timeout during 10-min batch polls
+  - **Automation Logs timezone**: fixed `fmt()` in `App.jsx` to use `timeZone: "Europe/Berlin"`
+  - **Langfuse tokens/cost fix**: `/data/traces` now fetches GENERATION observations (single call, joined by traceId), merges `promptTokens`/`completionTokens`/`totalTokens` into trace response. Dashboard reads `t.totalCost` + `t.totalTokens` (was `t.usage?.totalCost` — wrong nesting)
+  - **Score comparisons**: all `j.get("score", 0) >= 60` → `(j.get("score") or 0) >= 60` (handles NULL correctly)
+  - **Known issue**: `pipeline_agents = {agent1,agent2,agent9}` for user 1 — Agent 3 not in pipeline, no Langfuse traces from daily run. Add agent3 back: `UPDATE user_settings SET pipeline_agents = '{agent1,agent2,agent3,agent9}' WHERE user_id = 1;`
+
 ### Indeed Scraper — Live ✅
 - Actor: `wannabe/indeed-scraper-de` (ID: 9qhb5j6V4P6hNBKWF) at `scrapers/apify-indeed/`
 - Current build: 0.1.26
@@ -353,6 +370,7 @@ Session field:  PVTSSF_lAHOAzmK_s4BRHr5zg_CpY0
 | 6 — App Tracker | Sunday 9am UTC (after 5) | — | Follow-up reminders |
 | 7 — CV Tailor | Manual (local only) | Sonnet → gemma2:9b | LaTeX output, `run_from_job()` core, CC mode via /cv-tailor skill |
 | 8 — Cover Letter | Manual (local only) | Sonnet → gemma2:9b | generate + self-review loop (max 2 passes, threshold 9.0), CC mode via /cover-letter skill |
+| 9 — Market Analyst | Sunday 9am UTC (weekly) + manual | smart model | `newest=True` auto (sliding window) · manual = top-scored. `analysis_reports` table. |
 
 ### CV Tailor + Cover Letter — Local Only (not on EC2)
 - `agents/cv_tailor.py` — Agent 7: `preview_changes` + `tailor_cv` + `run_from_job(job_dict)` + `run(job_id)`
@@ -498,4 +516,6 @@ Sourced from Figma: https://www.figma.com/design/edZchVLmFPKxtaPBV8zsAr/The-Bran
 ---
 
 ## Last Updated
-2026-06-05 — Session 9: Phase 7 observability complete. Langfuse @observe + anthropic/openai wrappers, AgentOps start/end session per call_llm, agentops_sessions DB table (workaround for missing list API), Traces tab in dashboard (Langfuse + AgentOps toggle), AgentOps stats enrichment via /v2/sessions/<id>/stats. Agent 2 switched to OpenAI Batch API (gpt-4o-mini). NVIDIA workers reduced to 1 (free-tier). .gitignore hardened (n8n/workflows, data/, .env.local, .mcp.json).
+2026-06-12 — Langfuse fully removed (AgentOps-only observability): EC2 container + 3 Docker images deleted (disk 73%→58%), `@observe`/langfuse imports stripped from `llm_client.py` (trace_name now goes into AgentOps `agent` tag), `/data/traces` endpoint removed from `api.py`, Traces tab now AgentOps-only (`getTraces` removed from api.js), `langfuse==2.60.10` dropped from requirements.txt, LANGFUSE_* removed from EC2 .env. Deployed: EC2 (api restarted, health OK) + Vercel prod. Leftovers: RDS `langfuse` DB (droppable), `/home/ubuntu/langfuse/` compose dir, langfuse pkg still pip-installed on EC2 (harmless).
+
+2026-06-10 — Session 10: Agent 9 Market Analyst added (newest-first weekly, top-scored manual). Observability fixes: per-agent trace_name in Langfuse, thread-local token capture, _calc_cost(), AgentOps tokens/cost stored in DB columns. Agent 2 batch now records to agentops_sessions with user_id. score=None fix (NULL retry). Background threading for /run/agent1/2/3. Automation Logs Berlin timezone. Langfuse traces endpoint enriched with GENERATION observation tokens. Dashboard reads t.totalCost + t.totalTokens. Migrations 014–018 applied.

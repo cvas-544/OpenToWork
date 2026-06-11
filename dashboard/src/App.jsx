@@ -3,7 +3,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LoginPage } from "./components/LoginPage";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication, fetchLLMMode, setLLMMode, updateApplicationStatus, listUsers, createUser, deleteUser, changePassword, getUserSettings, updateUserSettings, getTraces, getAgentOpsSessions, fetchAnalysis, runAgent9 } from "./api";
+import { fetchJobs, fetchStats, fetchProfile, updateSkills, fetchGaps, fetchRadar, fetchDailySkills, tailorCV, previewTailorCV, previewCoverLetter, approveCoverLetter, previewTailorCVManual, tailorCVManual, previewCoverLetterManual, approveCoverLetterManual, fetchInterviewPrep, fetchScraperStats, fetchManualApplications, createManualApplication, updateManualApplicationStatus, deleteManualApplication, fetchLLMMode, setLLMMode, updateApplicationStatus, listUsers, createUser, deleteUser, changePassword, getUserSettings, updateUserSettings, getAgentOpsSessions, fetchAnalysis, runAgent9 } from "./api";
 import {
   AreaChart, Area, BarChart, Bar, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis, LineChart, Line,
@@ -3346,31 +3346,16 @@ const AnalysisView = () => {
 
 // ─── Traces ───────────────────────────────────────────────────────────────────
 const TracesView = () => {
-  const [platform, setPlatform] = useState("langfuse"); // "langfuse" | "agentops"
-  const [traces, setTraces] = useState([]);
   const [sessions, setSessions] = useState([]);
-  const [meta, setMeta] = useState({});
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
   const [limit, setLimit] = useState(50);
   const [aoError, setAoError] = useState(null);
-  const [lfError, setLfError] = useState(null);
-
-  const loadLangfuse = (lim) => {
-    setLoading(true); setExpanded(null); setLfError(null);
-    getTraces(lim).then(d => {
-      setTraces(d.traces || []);
-      setMeta(d.meta || {});
-      if (d.error) setLfError(d.error);
-      setLoading(false);
-    });
-  };
 
   const loadAgentOps = (lim) => {
     setLoading(true); setExpanded(null); setAoError(null);
     getAgentOpsSessions(lim).then(d => {
       setSessions(d.sessions || []);
-      setMeta(d.meta || {});
       if (d.error) setAoError(d.error);
       if (d.message) setAoError(d.message);
       setLoading(false);
@@ -3378,9 +3363,8 @@ const TracesView = () => {
   };
 
   useEffect(() => {
-    if (platform === "langfuse") loadLangfuse(limit);
-    else loadAgentOps(limit);
-  }, [platform, limit]);
+    loadAgentOps(limit);
+  }, [limit]);
 
   const cardStyle = { background: "rgba(255,255,255,0.72)", backdropFilter: "blur(14px)", borderRadius: 16, border: "1px solid rgba(255,255,255,0.55)", padding: "20px 24px", marginBottom: 20 };
   const monoSm = { fontFamily: "'DM Mono', monospace", fontSize: 11 };
@@ -3400,142 +3384,32 @@ const TracesView = () => {
     catch { return iso; }
   };
 
-  const fmtMs = (ms) => {
-    if (ms == null) return "—";
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  };
-
-  const fmtDuration = (start, end) => {
-    if (!start || !end) return "—";
-    const ms = new Date(end) - new Date(start);
-    return fmtMs(ms);
-  };
-
-  const PLATFORMS = [
-    { id: "langfuse",  label: "Langfuse",  color: "#0D9488", desc: "LLM call traces · self-hosted EC2" },
-    { id: "agentops",  label: "AgentOps",  color: "#7C3AED", desc: "Agent sessions · hosted SaaS" },
-  ];
-
-  const cur = PLATFORMS.find(p => p.id === platform);
-
   return (
     <div style={{ padding: "28px 32px", maxWidth: 1100 }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
           <h2 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 32, letterSpacing: "0.04em", color: T.black }}>Observability</h2>
-          <p style={{ ...monoSm, color: T.gray400, marginTop: 4 }}>Compare Langfuse vs AgentOps — pick one to keep</p>
+          <p style={{ ...monoSm, color: T.gray400, marginTop: 4 }}>AgentOps — one session per LLM call, tokens + cost from DB</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ ...monoSm, color: T.gray400 }}>Show:</span>
           {[25, 50, 100].map(n => (
             <button key={n} onClick={() => setLimit(n)} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: limit === n ? T.orange : T.gray100, color: limit === n ? "#fff" : T.gray400, fontFamily: "'DM Mono', monospace", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{n}</button>
           ))}
-          <button onClick={() => platform === "langfuse" ? loadLangfuse(limit) : loadAgentOps(limit)} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: T.gray100, color: T.gray400, fontFamily: "'DM Mono', monospace", fontSize: 11, cursor: "pointer" }}>↺</button>
+          <button onClick={() => loadAgentOps(limit)} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: T.gray100, color: T.gray400, fontFamily: "'DM Mono', monospace", fontSize: 11, cursor: "pointer" }}>↺</button>
         </div>
-      </div>
-
-      {/* Platform toggle */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
-        {PLATFORMS.map(p => (
-          <button key={p.id} onClick={() => { setPlatform(p.id); setExpanded(null); }} style={{ padding: "10px 20px", borderRadius: 12, border: `2px solid ${platform === p.id ? p.color : T.gray200}`, background: platform === p.id ? p.color + "18" : "rgba(255,255,255,0.6)", cursor: "pointer", textAlign: "left", minWidth: 180 }}>
-            <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 13, color: platform === p.id ? p.color : T.gray400 }}>{p.label}</div>
-            <div style={{ ...monoSm, color: T.gray400, marginTop: 2 }}>{p.desc}</div>
-          </button>
-        ))}
       </div>
 
       {/* Loading */}
       {loading && (
         <div style={{ ...cardStyle, textAlign: "center", padding: 40 }}>
-          <div style={{ ...monoSm, color: T.gray400 }}>Loading {cur.label}…</div>
+          <div style={{ ...monoSm, color: T.gray400 }}>Loading AgentOps…</div>
         </div>
       )}
 
-      {/* ── Langfuse panel ── */}
-      {!loading && platform === "langfuse" && (
-        <>
-          {lfError && (
-            <div style={{ ...cardStyle, background: "#fef2f2", border: "1px solid #fecaca" }}>
-              <span style={{ ...monoSm, color: "#ef4444" }}>⚠ {lfError}</span>
-            </div>
-          )}
-          {traces.length === 0 && !lfError && (
-            <div style={{ ...cardStyle, textAlign: "center", padding: 48 }}>
-              <div style={{ fontSize: 28, marginBottom: 10 }}>⟴</div>
-              <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 15, color: T.black, marginBottom: 6 }}>No Langfuse traces yet</div>
-              <div style={{ ...monoSm, color: T.gray400 }}>Run any agent — each LLM call will appear here once LANGFUSE_* keys are set on EC2.</div>
-            </div>
-          )}
-          {traces.length > 0 && (
-            <div style={cardStyle}>
-              <div style={{ ...monoSm, color: T.gray400, marginBottom: 12 }}>
-                {meta.totalItems != null ? `${meta.totalItems} total traces` : `${traces.length} traces`} · Munich time
-              </div>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${T.gray200}` }}>
-                    {["Name", "Model", "Speed", "Latency", "Tokens", "Cost", "Status", "Time"].map(h => (
-                      <th key={h} style={{ ...monoSm, color: T.gray400, textAlign: "left", padding: "6px 10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {traces.map(t => {
-                    const obs = t.observations?.[0] || {};
-                    const isExp = expanded === t.id;
-                    const latencyMs = t.latency != null ? t.latency : (obs.latency != null ? obs.latency : null);
-                    const totalTokens = t.totalTokens || 0;
-                    const cost = t.totalCost != null ? `$${Number(t.totalCost).toFixed(4)}` : "—";
-                    const modelName = t.metadata?.model || obs.model || "—";
-                    const speed = t.metadata?.speed || obs.metadata?.speed || "—";
-                    return (
-                      <>
-                        <tr key={t.id} onClick={() => setExpanded(isExp ? null : t.id)} style={{ borderBottom: `1px solid ${T.gray100}`, cursor: "pointer", background: isExp ? "rgba(13,148,136,0.04)" : "transparent" }}>
-                          <td style={{ padding: "9px 10px", fontFamily: "'Sora', sans-serif", fontWeight: 600, fontSize: 12, color: T.black }}>{t.name || "call_llm"}</td>
-                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{modelName}</td>
-                          <td style={{ padding: "9px 10px" }}>{speed !== "—" ? <span style={pill(speed === "fast" ? T.orange : T.navy)}>{speed}</span> : <span style={{ ...monoSm, color: T.gray400 }}>—</span>}</td>
-                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{fmtMs(latencyMs)}</td>
-                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{totalTokens > 0 ? totalTokens.toLocaleString() : "—"}</td>
-                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{cost}</td>
-                          <td style={{ padding: "9px 10px" }}><span style={{ ...monoSm, color: statusColor(t.status), fontWeight: 600 }}>{t.status || "—"}</span></td>
-                          <td style={{ padding: "9px 10px", ...monoSm, color: T.gray400 }}>{fmtTime(t.timestamp)}</td>
-                        </tr>
-                        {isExp && (
-                          <tr key={`${t.id}-exp`} style={{ background: "rgba(13,148,136,0.03)" }}>
-                            <td colSpan={8} style={{ padding: "12px 16px" }}>
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                                <div>
-                                  <div style={{ ...monoSm, color: T.gray400, marginBottom: 4, textTransform: "uppercase" }}>Prompt</div>
-                                  <pre style={{ ...monoSm, background: T.gray100, borderRadius: 8, padding: "10px 12px", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 180, overflowY: "auto", color: T.black }}>{obs.input || t.input || "—"}</pre>
-                                </div>
-                                <div>
-                                  <div style={{ ...monoSm, color: T.gray400, marginBottom: 4, textTransform: "uppercase" }}>Response</div>
-                                  <pre style={{ ...monoSm, background: T.gray100, borderRadius: 8, padding: "10px 12px", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 180, overflowY: "auto", color: T.black }}>{obs.output || t.output || "—"}</pre>
-                                </div>
-                              </div>
-                              {t.metadata && Object.keys(t.metadata).length > 0 && (
-                                <div style={{ marginTop: 10 }}>
-                                  <div style={{ ...monoSm, color: T.gray400, marginBottom: 4, textTransform: "uppercase" }}>Metadata</div>
-                                  <pre style={{ ...monoSm, background: T.gray100, borderRadius: 8, padding: "8px 12px", color: T.gray400 }}>{JSON.stringify(t.metadata, null, 2)}</pre>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
       {/* ── AgentOps panel ── */}
-      {!loading && platform === "agentops" && (
+      {!loading && (
         <>
           {aoError && (
             <div style={{ ...cardStyle, background: "#faf5ff", border: "1px solid #ddd6fe" }}>

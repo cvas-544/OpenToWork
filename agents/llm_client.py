@@ -16,15 +16,8 @@ import subprocess
 from pathlib import Path
 import requests
 from dotenv import load_dotenv
-from langfuse.decorators import observe, langfuse_context
 
 load_dotenv()
-
-# ── Langfuse init (reads LANGFUSE_* env vars automatically) ───────────────────
-_LANGFUSE_ENABLED = bool(
-    os.environ.get("LANGFUSE_SECRET_KEY") and
-    os.environ.get("LANGFUSE_PUBLIC_KEY")
-)
 
 # ── AgentOps init ─────────────────────────────────────────────────────────────
 _AGENTOPS_ENABLED = bool(os.environ.get("AGENTOPS_API_KEY"))
@@ -135,17 +128,8 @@ def _strip_fences(text: str) -> str:
 
 # ── Providers ──────────────────────────────────────────────────────────────────
 def _call_anthropic(prompt: str, model: str, max_tokens: int, api_key: str) -> str:
-    # Use Langfuse-instrumented Anthropic client when enabled — auto-captures model/tokens/cost
-    if _LANGFUSE_ENABLED:
-        try:
-            from langfuse.anthropic import anthropic as _lf_anthropic
-            client = _lf_anthropic.Anthropic(api_key=api_key)
-        except Exception:
-            import anthropic as _anthropic
-            client = _anthropic.Anthropic(api_key=api_key)
-    else:
-        import anthropic as _anthropic
-        client = _anthropic.Anthropic(api_key=api_key)
+    import anthropic as _anthropic
+    client = _anthropic.Anthropic(api_key=api_key)
     response = client.messages.create(
         model=model, max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
@@ -158,20 +142,11 @@ def _call_anthropic(prompt: str, model: str, max_tokens: int, api_key: str) -> s
 
 def _call_openai(prompt: str, model: str, max_tokens: int, api_key: str, base_url: str = None) -> str:
     try:
-        # Use Langfuse-instrumented OpenAI client when enabled — auto-captures model/tokens/cost
-        if _LANGFUSE_ENABLED and not base_url:
-            try:
-                from langfuse.openai import OpenAI as _LF_OpenAI
-                client = _LF_OpenAI(api_key=api_key)
-            except Exception:
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key)
-        else:
-            from openai import OpenAI
-            kwargs = {"api_key": api_key}
-            if base_url:
-                kwargs["base_url"] = base_url
-            client = OpenAI(**kwargs)
+        from openai import OpenAI
+        kwargs = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        client = OpenAI(**kwargs)
         response = client.chat.completions.create(
             model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
@@ -276,7 +251,6 @@ def _ollama_fallback(prompt: str, max_tokens: int, reason: str) -> str:
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
-@observe(name="call_llm", capture_input=True, capture_output=True)
 def call_llm(prompt: str, max_tokens: int = 2000, user_id: int = None,
              speed: str = "smart", model: str = None, trace_name: str = None) -> str:
     """
@@ -307,23 +281,6 @@ def call_llm(prompt: str, max_tokens: int = 2000, user_id: int = None,
 
     print(f"[LLM] provider={provider} model={resolved_model} speed={speed} user={user_id}")
 
-    # ── Langfuse trace metadata ──
-    if _LANGFUSE_ENABLED:
-        try:
-            if user_id:
-                langfuse_context.update_current_trace(user_id=str(user_id))
-            langfuse_context.update_current_trace(
-                name=trace_name or "call_llm",
-                metadata={"model": resolved_model, "provider": provider, "speed": speed, "max_tokens": max_tokens},
-            )
-            langfuse_context.update_current_observation(
-                name=trace_name or "call_llm",
-                model=resolved_model,
-                metadata={"provider": provider, "speed": speed, "max_tokens": max_tokens},
-            )
-        except Exception:
-            pass
-
     # ── AgentOps session ──
     _ao_session = None
     if _AGENTOPS_ENABLED:
@@ -334,6 +291,7 @@ def call_llm(prompt: str, max_tokens: int = 2000, user_id: int = None,
                 "provider": provider,
                 "model": resolved_model,
                 "speed": speed,
+                "agent": trace_name or "call_llm",
             })
         except Exception:
             pass

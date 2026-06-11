@@ -384,14 +384,3 @@ export async function runAgent9(scoreThreshold = 50, maxJobs = 50) {
   if (!res.ok) throw new Error(`Agent 9 failed: ${res.status}`);
   return await res.json();
 }
-
-export async function getTraces(limit = 50) {
-  try {
-    const res = await fetch(`${API_URL}/data/traces?limit=${limit}`, { headers: authHeaders() });
-    if (!res.ok) throw new Error("API error");
-    return await res.json();
-  } catch (e) {
-    console.warn("[API] getTraces failed:", e.message);
-    return { traces: [], meta: {} };
-  }
-}

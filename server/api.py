@@ -1481,57 +1481,6 @@ def get_automation_logs(current_user=Depends(get_current_user)):
     return {"runs": rows}
 
 
-# ── Langfuse traces proxy ──────────────────────────────────────────────────────
-@app.get("/data/traces")
-def get_traces(limit: int = 50, current_user=Depends(get_current_user)):
-    """Proxy Langfuse traces filtered by current user, enriched with token/cost from observations."""
-    import httpx
-    uid = str(current_user["sub"])
-    langfuse_host = os.environ.get("LANGFUSE_HOST", "http://localhost:3010")
-    secret_key    = os.environ.get("LANGFUSE_SECRET_KEY", "")
-    public_key    = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
-    if not secret_key:
-        return {"traces": [], "message": "Langfuse not configured"}
-    auth = (public_key, secret_key)
-    try:
-        traces_resp = httpx.get(
-            f"{langfuse_host}/api/public/traces",
-            params={"limit": limit, "userId": uid},
-            auth=auth, timeout=10,
-        )
-        traces_resp.raise_for_status()
-        traces = traces_resp.json().get("data", [])
-        meta   = traces_resp.json().get("meta", {})
-
-        # Fetch GENERATION observations to get token counts (single call, join by traceId)
-        obs_resp = httpx.get(
-            f"{langfuse_host}/api/public/observations",
-            params={"type": "GENERATION", "userId": uid, "limit": limit},
-            auth=auth, timeout=10,
-        )
-        obs_by_trace = {}
-        if obs_resp.status_code == 200:
-            for o in obs_resp.json().get("data", []):
-                tid = o.get("traceId")
-                if tid and tid not in obs_by_trace:
-                    obs_by_trace[tid] = {
-                        "promptTokens":     o.get("promptTokens", 0),
-                        "completionTokens": o.get("completionTokens", 0),
-                        "totalTokens":      o.get("totalTokens", 0),
-                    }
-
-        # Merge token data into each trace
-        for t in traces:
-            obs = obs_by_trace.get(t["id"], {})
-            t["promptTokens"]     = obs.get("promptTokens")
-            t["completionTokens"] = obs.get("completionTokens")
-            t["totalTokens"]      = obs.get("totalTokens")
-
-        return {"traces": traces, "meta": meta}
-    except Exception as e:
-        return {"traces": [], "error": str(e)}
-
-
 @app.get("/data/agentops")
 def get_agentops_sessions(limit: int = 50, current_user=Depends(get_current_user)):
     """Read AgentOps sessions from our DB (token/cost captured at call time)."""
